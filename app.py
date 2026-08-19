@@ -60,6 +60,10 @@ MAPEO_AGENTES = {
     'LEONEL PRECIADO MARTINEZ': 'Leonel Preciado Martínez',
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
     'EMMANUEL RUIZ VERA': 'Emmanuel Ruiz Vera',
+    'EDUARDO  ABASOLO REYES': 'Eduardo Reyes Abasolo',
+    'REBECA  CARMONA MARTELL': 'Brebeca Carmona Martell',
+    ' KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
+    'FERGIE ZOE  ALCANTARA GARCÍA': 'Fergie Zoe Alcantara',
 }
 
 AGENTES_ORDER = [
@@ -105,12 +109,15 @@ def convertir_agente(agente):
     """Convierte el código del agente a nombre completo"""
     if pd.isna(agente):
         return None
-    clave = str(agente).upper().strip()
+    agente_str = str(agente).strip()
+    agente_upper = agente_str.upper()
+    
     # Buscar en el mapeo
     for key, value in MAPEO_AGENTES.items():
-        if key in clave or clave in key:
+        if key.upper() in agente_upper or agente_upper in key.upper():
             return value
-    return str(agente)
+    
+    return agente_str
 
 @st.cache_data
 def procesar_fecha(fecha_str):
@@ -213,14 +220,15 @@ def leer_archivo(archivo):
     
     try:
         if extension == 'csv':
-            # Para CSV grandes, leer con chunks
-            df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False)
+            # Para CSV, asegurar que lee números como float
+            df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False, 
+                           dtype=str)  # Leer todo como string primero
         else:
             # Intentar con openpyxl primero, si falla usar xlrd
             try:
-                df = pd.read_excel(archivo, engine='openpyxl')
+                df = pd.read_excel(archivo, engine='openpyxl', dtype=str)
             except:
-                df = pd.read_excel(archivo, engine='xlrd')
+                df = pd.read_excel(archivo, engine='xlrd', dtype=str)
         
         return df
     except Exception as e:
@@ -229,30 +237,35 @@ def leer_archivo(archivo):
 
 @st.cache_data
 def limpiar_valor_numerico(valor):
-    """Limpia un valor para convertirlo a número"""
+    """Limpia un valor para convertirlo a número flotante"""
     if pd.isna(valor):
-        return 0
+        return 0.0
     
     # Si ya es número
     if isinstance(valor, (int, float)):
-        return float(valor) if not pd.isna(valor) else 0
+        return float(valor)
     
     # Si es string, limpiar
     if isinstance(valor, str):
-        # Quitar espacios y caracteres no numéricos excepto punto y coma
+        # Quitar espacios
         valor = valor.strip()
+        if valor == '':
+            return 0.0
+        
         # Reemplazar comas por puntos (formato europeo)
         valor = valor.replace(',', '.')
+        
         # Extraer solo números y puntos
         valor = re.sub(r'[^0-9.]', '', valor)
         if valor == '':
-            return 0
+            return 0.0
+        
         try:
             return float(valor)
         except:
-            return 0
+            return 0.0
     
-    return 0
+    return 0.0
 
 def procesar_archivo_tiempos(df_tiempos):
     """
@@ -260,20 +273,30 @@ def procesar_archivo_tiempos(df_tiempos):
     """
     tiempos_dict = {}
     
-    # Identificar las columnas de horas
-    columnas_horas = [col for col in df_tiempos.columns if ' AM' in col or ' PM' in col]
+    # Identificar las columnas de horas (las que tienen AM o PM)
+    columnas_horas = []
+    for col in df_tiempos.columns:
+        col_str = str(col)
+        if ' AM' in col_str or ' PM' in col_str:
+            columnas_horas.append(col)
+    
+    if not columnas_horas:
+        st.warning("No se encontraron columnas de horas (AM/PM) en el archivo de tiempos")
+        return tiempos_dict
     
     # Buscar la columna de nombre de usuario
     nombre_col = None
     for col in df_tiempos.columns:
-        if 'Nombre' in col or 'nombre' in col.lower():
+        col_str = str(col)
+        if 'Nombre' in col_str or 'nombre' in col_str.lower():
             nombre_col = col
             break
     
+    # Si no encuentra 'Nombre', buscar 'Nombre de usuario'
     if not nombre_col:
-        # Si no encuentra 'Nombre', buscar 'Nombre de usuario'
         for col in df_tiempos.columns:
-            if 'usuario' in col.lower():
+            col_str = str(col)
+            if 'usuario' in col_str.lower():
                 nombre_col = col
                 break
     
@@ -282,43 +305,57 @@ def procesar_archivo_tiempos(df_tiempos):
         return tiempos_dict
     
     # Procesar cada fila
-    for _, row in df_tiempos.iterrows():
-        agente = str(row[nombre_col]).strip()
-        if not agente or pd.isna(agente):
+    for idx, row in df_tiempos.iterrows():
+        try:
+            # Obtener nombre del agente
+            agente_val = row[nombre_col]
+            if pd.isna(agente_val):
+                continue
+            
+            agente = str(agente_val).strip()
+            if not agente or agente == '':
+                continue
+            
+            # Limpiar nombre del agente
+            agente_limpio = agente.replace('"', '').strip()
+            
+            # Convertir nombre si está en el mapeo
+            agente_convertido = convertir_agente(agente_limpio)
+            
+            # Procesar cada columna de hora
+            for col_hora in columnas_horas:
+                try:
+                    # Obtener valor
+                    valor = row[col_hora]
+                    if pd.isna(valor):
+                        continue
+                    
+                    # Limpiar y convertir a float
+                    minutos = limpiar_valor_numerico(valor)
+                    if minutos == 0:
+                        continue
+                    
+                    # Obtener el rango de hora correspondiente
+                    col_hora_str = str(col_hora).strip()
+                    rango_hora = HORAS_ARCHIVO.get(col_hora_str)
+                    if not rango_hora:
+                        continue
+                    
+                    # Solo nos interesan los rangos de 9 AM a 6 PM
+                    if rango_hora not in RANGOS_HORA:
+                        continue
+                    
+                    # Acumular minutos (sumar todos los estados)
+                    key = f"{agente_convertido}|{rango_hora}"
+                    tiempos_dict[key] = tiempos_dict.get(key, 0.0) + minutos
+                    
+                except Exception as e:
+                    # Si falla una columna, continuar con las demás
+                    continue
+                    
+        except Exception as e:
+            # Si falla una fila, continuar con las demás
             continue
-        
-        # Limpiar nombre del agente
-        agente_limpio = agente.replace('"', '').strip()
-        
-        # Convertir nombre si está en el mapeo
-        for key, value in MAPEO_AGENTES.items():
-            if key in agente_limpio.upper() or agente_limpio.upper() in key:
-                agente_limpio = value
-                break
-        
-        # Procesar cada columna de hora
-        for col_hora in columnas_horas:
-            # Obtener valor en minutos
-            valor = row[col_hora]
-            if pd.isna(valor) or valor == 0:
-                continue
-            
-            minutos = limpiar_valor_numerico(valor)
-            if minutos == 0:
-                continue
-            
-            # Obtener el rango de hora correspondiente
-            rango_hora = HORAS_ARCHIVO.get(col_hora)
-            if not rango_hora:
-                continue
-            
-            # Solo nos interesan los rangos de 9 AM a 6 PM
-            if rango_hora not in RANGOS_HORA:
-                continue
-            
-            # Acumular minutos
-            key = f"{agente_limpio}|{rango_hora}"
-            tiempos_dict[key] = tiempos_dict.get(key, 0) + minutos
     
     return tiempos_dict
 
@@ -432,8 +469,8 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
                 
                 row['Llamadas'] = row['Registros']
                 row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
-                row['Total conexión'] = 0
-                row['VPH'] = 0
+                row['Total conexión'] = 0.0
+                row['VPH'] = 0.0
                 
                 reporte_list.append(row)
         
@@ -455,14 +492,14 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
                 
                 if tiempos_dict:
                     # Convertir minutos a horas (dividir entre 60)
-                    tiempos_dict_horas = {k: v / 60 for k, v in tiempos_dict.items()}
+                    tiempos_dict_horas = {k: v / 60.0 for k, v in tiempos_dict.items()}
                     
                     # Actualizar reporte
                     for idx, row in reporte.iterrows():
                         key = f"{row['AGENTE']}|{row['Rango_Hora']}"
-                        horas = tiempos_dict_horas.get(key, 0)
+                        horas = tiempos_dict_horas.get(key, 0.0)
                         reporte.at[idx, 'Total conexión'] = round(horas, 2)
-                        reporte.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0
+                        reporte.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0.0
                     
                     st.success(f"✅ Tiempos procesados: {len(tiempos_dict)} combinaciones agente-hora")
                 else:
@@ -470,6 +507,9 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
                     
             except Exception as e:
                 st.warning(f"Error al procesar tiempos: {e}. Continuando sin tiempos.")
+                import traceback
+                with st.expander("Ver detalles del error de tiempos"):
+                    st.code(traceback.format_exc())
         
         progress_bar.progress(90)
         
@@ -592,6 +632,10 @@ if procesar and archivo_llamadas:
                     with st.expander("🔍 Ver columnas del archivo de tiempos"):
                         st.write("📋 Columnas disponibles:")
                         st.code(", ".join(df_tiempos.columns.tolist()))
+                        
+                        # Mostrar muestra
+                        st.write("📊 Muestra de los primeros 5 registros:")
+                        st.dataframe(df_tiempos.head(), use_container_width=True)
             
             # Procesar datos
             reporte = procesar_datos(df_llamadas, df_tiempos, incluir_tiempos)
