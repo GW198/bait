@@ -4,15 +4,6 @@ import numpy as np
 from datetime import datetime
 import io
 import re
-import sys
-
-# Intentar importar openpyxl, si no está disponible, usar xlsxwriter
-try:
-    import openpyxl
-    HAS_OPENPYXL = True
-except ImportError:
-    HAS_OPENPYXL = False
-    st.warning("⚠️ openpyxl no está instalado. Se usará xlsxwriter como alternativa.")
 
 # Configuración de la página
 st.set_page_config(
@@ -86,6 +77,28 @@ RANGOS_HORA = [
     '15:00 A 16:00', '16:00 A 17:00', '17:00 A 18:00'
 ]
 
+# Mapeo de horas para el archivo de tiempos
+HORAS_ARCHIVO = {
+    '6 AM': '6:00 A 7:00',
+    '7 AM': '7:00 A 8:00',
+    '8 AM': '8:00 A 9:00',
+    '9 AM': '9:00 A 10:00',
+    '10 AM': '10:00 A 11:00',
+    '11 AM': '11:00 A 12:00',
+    '12 PM': '12:00 A 13:00',
+    '1 PM': '13:00 A 14:00',
+    '2 PM': '14:00 A 15:00',
+    '3 PM': '15:00 A 16:00',
+    '4 PM': '16:00 A 17:00',
+    '5 PM': '17:00 A 18:00',
+    '6 PM': '18:00 A 19:00',
+    '7 PM': '19:00 A 20:00',
+    '8 PM': '20:00 A 21:00',
+    '9 PM': '21:00 A 22:00',
+    '10 PM': '22:00 A 23:00',
+    '11 PM': '23:00 A 0:00',
+}
+
 # Funciones de procesamiento
 @st.cache_data
 def convertir_agente(agente):
@@ -93,7 +106,11 @@ def convertir_agente(agente):
     if pd.isna(agente):
         return None
     clave = str(agente).upper().strip()
-    return MAPEO_AGENTES.get(clave, str(agente))
+    # Buscar en el mapeo
+    for key, value in MAPEO_AGENTES.items():
+        if key in clave or clave in key:
+            return value
+    return str(agente)
 
 @st.cache_data
 def procesar_fecha(fecha_str):
@@ -197,7 +214,7 @@ def leer_archivo(archivo):
     try:
         if extension == 'csv':
             # Para CSV grandes, leer con chunks
-            df = pd.read_csv(archivo, encoding='utf-8', low_memory=False)
+            df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False)
         else:
             # Intentar con openpyxl primero, si falla usar xlrd
             try:
@@ -237,14 +254,82 @@ def limpiar_valor_numerico(valor):
     
     return 0
 
+def procesar_archivo_tiempos(df_tiempos):
+    """
+    Procesa el archivo de tiempos de agentes y devuelve un diccionario con las horas por agente y rango
+    """
+    tiempos_dict = {}
+    
+    # Identificar las columnas de horas
+    columnas_horas = [col for col in df_tiempos.columns if ' AM' in col or ' PM' in col]
+    
+    # Buscar la columna de nombre de usuario
+    nombre_col = None
+    for col in df_tiempos.columns:
+        if 'Nombre' in col or 'nombre' in col.lower():
+            nombre_col = col
+            break
+    
+    if not nombre_col:
+        # Si no encuentra 'Nombre', buscar 'Nombre de usuario'
+        for col in df_tiempos.columns:
+            if 'usuario' in col.lower():
+                nombre_col = col
+                break
+    
+    if not nombre_col:
+        st.warning("No se encontró la columna de nombre de agente en el archivo de tiempos")
+        return tiempos_dict
+    
+    # Procesar cada fila
+    for _, row in df_tiempos.iterrows():
+        agente = str(row[nombre_col]).strip()
+        if not agente or pd.isna(agente):
+            continue
+        
+        # Limpiar nombre del agente
+        agente_limpio = agente.replace('"', '').strip()
+        
+        # Convertir nombre si está en el mapeo
+        for key, value in MAPEO_AGENTES.items():
+            if key in agente_limpio.upper() or agente_limpio.upper() in key:
+                agente_limpio = value
+                break
+        
+        # Procesar cada columna de hora
+        for col_hora in columnas_horas:
+            # Obtener valor en minutos
+            valor = row[col_hora]
+            if pd.isna(valor) or valor == 0:
+                continue
+            
+            minutos = limpiar_valor_numerico(valor)
+            if minutos == 0:
+                continue
+            
+            # Obtener el rango de hora correspondiente
+            rango_hora = HORAS_ARCHIVO.get(col_hora)
+            if not rango_hora:
+                continue
+            
+            # Solo nos interesan los rangos de 9 AM a 6 PM
+            if rango_hora not in RANGOS_HORA:
+                continue
+            
+            # Acumular minutos
+            key = f"{agente_limpio}|{rango_hora}"
+            tiempos_dict[key] = tiempos_dict.get(key, 0) + minutos
+    
+    return tiempos_dict
+
 @st.cache_data
-def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
+def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
     """Procesa los datos de llamadas y genera el reporte"""
     
     with st.spinner('Procesando datos...'):
         progress_bar = st.progress(0)
         
-        # 1. Identificar columnas
+        # 1. Identificar columnas en llamadas
         columnas = df_llamadas.columns.tolist()
         
         fecha_col = None
@@ -360,50 +445,31 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         
         progress_bar.progress(80)
         
-        # 9. Agregar conexiones si existen
-        if incluir_conexiones and df_conexiones is not None and len(df_conexiones) > 0:
+        # 9. Procesar tiempos de conexión
+        if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
-                cols_conex = df_conexiones.columns.tolist()
-                agente_col_conex = None
-                rango_col_conex = None
-                horas_col_conex = None
+                st.info("⏱️ Procesando archivo de tiempos de agentes...")
                 
-                for col in cols_conex:
-                    col_lower = col.lower()
-                    if 'agente' in col_lower:
-                        agente_col_conex = col
-                    if 'rango' in col_lower or 'hora' in col_lower:
-                        rango_col_conex = col
-                    if 'conexion' in col_lower or 'total' in col_lower:
-                        horas_col_conex = col
+                # Procesar el archivo de tiempos
+                tiempos_dict = procesar_archivo_tiempos(df_tiempos)
                 
-                if agente_col_conex and rango_col_conex and horas_col_conex:
-                    # Convertir agentes en conexiones
-                    df_conexiones['Agente_Nombre'] = df_conexiones[agente_col_conex].apply(convertir_agente)
-                    df_conexiones['Agente_Nombre'] = df_conexiones['Agente_Nombre'].astype(str)
-                    
-                    # Limpiar y convertir horas
-                    df_conexiones['Horas_Limpias'] = df_conexiones[horas_col_conex].apply(limpiar_valor_numerico)
-                    
-                    # Crear diccionario de conexiones
-                    conexiones_dict = {}
-                    for _, row in df_conexiones.iterrows():
-                        agente = row['Agente_Nombre']
-                        rango = str(row[rango_col_conex]).strip()
-                        horas = row['Horas_Limpias']
-                        key = f"{agente}|{rango}"
-                        conexiones_dict[key] = horas
+                if tiempos_dict:
+                    # Convertir minutos a horas (dividir entre 60)
+                    tiempos_dict_horas = {k: v / 60 for k, v in tiempos_dict.items()}
                     
                     # Actualizar reporte
                     for idx, row in reporte.iterrows():
                         key = f"{row['AGENTE']}|{row['Rango_Hora']}"
-                        horas = conexiones_dict.get(key, 0)
+                        horas = tiempos_dict_horas.get(key, 0)
                         reporte.at[idx, 'Total conexión'] = round(horas, 2)
                         reporte.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0
+                    
+                    st.success(f"✅ Tiempos procesados: {len(tiempos_dict)} combinaciones agente-hora")
                 else:
-                    st.warning("No se encontraron las columnas necesarias en el archivo de conexiones")
+                    st.warning("No se encontraron datos de tiempo en el archivo de conexiones")
+                    
             except Exception as e:
-                st.warning(f"Error al procesar conexiones: {e}. Continuando sin conexiones.")
+                st.warning(f"Error al procesar tiempos: {e}. Continuando sin tiempos.")
         
         progress_bar.progress(90)
         
@@ -426,7 +492,8 @@ def guardar_excel(reporte):
     
     try:
         # Intentar con openpyxl primero
-        if HAS_OPENPYXL:
+        try:
+            import openpyxl
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 reporte.to_excel(writer, sheet_name='Reporte', index=False)
                 
@@ -435,7 +502,7 @@ def guardar_excel(reporte):
                 for idx, col in enumerate(reporte.columns):
                     max_len = max(reporte[col].astype(str).str.len().max(), len(col)) + 2
                     worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
-        else:
+        except:
             # Usar xlsxwriter como alternativa
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 reporte.to_excel(writer, sheet_name='Reporte', index=False)
@@ -474,18 +541,18 @@ with col1:
         help="Sube el archivo con los datos de las llamadas"
     )
     
-    # Archivo de conexiones
-    archivo_conexiones = st.file_uploader(
-        "Archivo de conexiones (Opcional)",
+    # Archivo de tiempos
+    archivo_tiempos = st.file_uploader(
+        "Archivo de tiempos de agentes (Opcional)",
         type=['xlsx', 'xls', 'csv'],
-        help="Sube el archivo con las horas de conexión por agente"
+        help="Sube el archivo con los tiempos de conexión por agente y hora"
     )
 
 with col2:
     st.subheader("⚙️ Configuración")
     
-    incluir_conexiones = st.checkbox("Incluir conexiones", value=True, 
-                                     help="Incluir horas de conexión en el reporte")
+    incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True, 
+                                   help="Incluir horas de conexión en el reporte")
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
@@ -515,14 +582,19 @@ if procesar and archivo_llamadas:
         if df_llamadas is not None and len(df_llamadas) > 0:
             st.success(f"✅ Archivo de llamadas cargado: {len(df_llamadas):,} registros")
             
-            df_conexiones = None
-            if archivo_conexiones and incluir_conexiones:
-                df_conexiones = leer_archivo(archivo_conexiones)
-                if df_conexiones is not None:
-                    st.success(f"✅ Archivo de conexiones cargado: {len(df_conexiones):,} registros")
+            df_tiempos = None
+            if archivo_tiempos and incluir_tiempos:
+                df_tiempos = leer_archivo(archivo_tiempos)
+                if df_tiempos is not None:
+                    st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
+                    
+                    # Mostrar columnas del archivo de tiempos
+                    with st.expander("🔍 Ver columnas del archivo de tiempos"):
+                        st.write("📋 Columnas disponibles:")
+                        st.code(", ".join(df_tiempos.columns.tolist()))
             
             # Procesar datos
-            reporte = procesar_datos(df_llamadas, df_conexiones, incluir_conexiones)
+            reporte = procesar_datos(df_llamadas, df_tiempos, incluir_tiempos)
             
             if reporte is not None and len(reporte) > 0:
                 st.balloons()
@@ -619,11 +691,11 @@ if procesar and archivo_llamadas:
                     
                     if output is not None:
                         # Determinar el tipo de archivo
-                        if HAS_OPENPYXL:
+                        try:
+                            import openpyxl
                             mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             file_ext = "xlsx"
-                        else:
-                            # Si es CSV
+                        except:
                             mime_type = "text/csv"
                             file_ext = "csv"
                         
