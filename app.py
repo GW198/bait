@@ -4,6 +4,15 @@ import numpy as np
 from datetime import datetime
 import io
 import re
+import sys
+
+# Intentar importar openpyxl, si no está disponible, usar xlsxwriter
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+    st.warning("⚠️ openpyxl no está instalado. Se usará xlsxwriter como alternativa.")
 
 # Configuración de la página
 st.set_page_config(
@@ -190,7 +199,11 @@ def leer_archivo(archivo):
             # Para CSV grandes, leer con chunks
             df = pd.read_csv(archivo, encoding='utf-8', low_memory=False)
         else:
-            df = pd.read_excel(archivo, engine='openpyxl')
+            # Intentar con openpyxl primero, si falla usar xlrd
+            try:
+                df = pd.read_excel(archivo, engine='openpyxl')
+            except:
+                df = pd.read_excel(archivo, engine='xlrd')
         
         return df
     except Exception as e:
@@ -407,6 +420,47 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         
         return reporte
 
+def guardar_excel(reporte):
+    """Guarda el reporte en un archivo Excel"""
+    output = io.BytesIO()
+    
+    try:
+        # Intentar con openpyxl primero
+        if HAS_OPENPYXL:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                reporte.to_excel(writer, sheet_name='Reporte', index=False)
+                
+                # Ajustar ancho de columnas
+                worksheet = writer.sheets['Reporte']
+                for idx, col in enumerate(reporte.columns):
+                    max_len = max(reporte[col].astype(str).str.len().max(), len(col)) + 2
+                    worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
+        else:
+            # Usar xlsxwriter como alternativa
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                reporte.to_excel(writer, sheet_name='Reporte', index=False)
+                
+                # Ajustar ancho de columnas
+                workbook = writer.book
+                worksheet = writer.sheets['Reporte']
+                for idx, col in enumerate(reporte.columns):
+                    max_len = max(reporte[col].astype(str).str.len().max(), len(col)) + 2
+                    worksheet.set_column(idx, idx, min(max_len, 50))
+        
+        output.seek(0)
+        return output
+        
+    except Exception as e:
+        st.error(f"Error al guardar el archivo Excel: {e}")
+        # Intentar con formato CSV como fallback
+        try:
+            csv_output = io.BytesIO()
+            reporte.to_csv(csv_output, index=False)
+            csv_output.seek(0)
+            return csv_output
+        except:
+            return None
+
 # Interfaz principal
 col1, col2 = st.columns([2, 1])
 
@@ -560,26 +614,28 @@ if procesar and archivo_llamadas:
                     # Descargar Excel
                     st.subheader("📥 Descargar Reporte")
                     
-                    # Crear archivo Excel en memoria
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        reporte.to_excel(writer, sheet_name='Reporte', index=False)
+                    # Guardar Excel
+                    output = guardar_excel(reporte)
+                    
+                    if output is not None:
+                        # Determinar el tipo de archivo
+                        if HAS_OPENPYXL:
+                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            file_ext = "xlsx"
+                        else:
+                            # Si es CSV
+                            mime_type = "text/csv"
+                            file_ext = "csv"
                         
-                        # Ajustar ancho de columnas
-                        worksheet = writer.sheets['Reporte']
-                        for idx, col in enumerate(reporte.columns):
-                            max_len = max(reporte[col].astype(str).str.len().max(), len(col)) + 2
-                            worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
-                    
-                    output.seek(0)
-                    
-                    st.download_button(
-                        label="⬇️ Descargar Excel",
-                        data=output,
-                        file_name=f"reporte_agentes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
+                        st.download_button(
+                            label=f"⬇️ Descargar Reporte (.{file_ext})",
+                            data=output,
+                            file_name=f"reporte_agentes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
+                            mime=mime_type,
+                            use_container_width=True
+                        )
+                    else:
+                        st.error("No se pudo generar el archivo de descarga")
                 else:
                     st.warning("No se encontraron agentes en los datos procesados.")
             else:
