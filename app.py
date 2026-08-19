@@ -82,44 +82,6 @@ RANGOS_HORA = [
     '15:00 A 16:00', '16:00 A 17:00', '17:00 A 18:00'
 ]
 
-# Mapeo de horas del archivo de tiempos a los rangos
-HORAS_ARCHIVO = {
-    '06:00 a. m.': '6:00 A 7:00',
-    '07:00 a. m.': '7:00 A 8:00',
-    '08:00 a. m.': '8:00 A 9:00',
-    '09:00 a. m.': '9:00 A 10:00',
-    '10:00 a. m.': '10:00 A 11:00',
-    '11:00 a. m.': '11:00 A 12:00',
-    '12:00 p. m.': '12:00 A 13:00',
-    '01:00 p. m.': '13:00 A 14:00',
-    '02:00 p. m.': '14:00 A 15:00',
-    '03:00 p. m.': '15:00 A 16:00',
-    '04:00 p. m.': '16:00 A 17:00',
-    '05:00 p. m.': '17:00 A 18:00',
-    '06:00 p. m.': '18:00 A 19:00',
-    '07:00 p. m.': '19:00 A 20:00',
-    '08:00 p. m.': '20:00 A 21:00',
-    '09:00 p. m.': '21:00 A 22:00',
-    '10:00 p. m.': '22:00 A 23:00',
-    '11:00 p. m.': '23:00 A 0:00',
-}
-
-# Versión con nombres más cortos para buscar
-HORAS_ARCHIVO_SHORT = {
-    '06:00': '6:00 A 7:00',
-    '07:00': '7:00 A 8:00',
-    '08:00': '8:00 A 9:00',
-    '09:00': '9:00 A 10:00',
-    '10:00': '10:00 A 11:00',
-    '11:00': '11:00 A 12:00',
-    '12:00': '12:00 A 13:00',
-    '01:00': '13:00 A 14:00',
-    '02:00': '14:00 A 15:00',
-    '03:00': '15:00 A 16:00',
-    '04:00': '16:00 A 17:00',
-    '05:00': '17:00 A 18:00',
-}
-
 # Funciones de procesamiento
 @st.cache_data
 def convertir_agente(agente):
@@ -237,7 +199,7 @@ def leer_archivo(archivo):
     
     try:
         if extension == 'csv':
-            # Para CSV, leer todo como string primero para evitar problemas de tipos
+            # Para CSV, leer todo como string primero
             df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False, dtype=str)
         else:
             # Intentar con openpyxl primero
@@ -283,6 +245,146 @@ def limpiar_valor_numerico(valor):
     
     return 0.0
 
+def identificar_columnas_horas(df_tiempos):
+    """
+    Identifica las columnas de horas en el DataFrame
+    """
+    columnas_horas = []
+    
+    # Mostrar todas las columnas para debug
+    st.write("🔍 Columnas encontradas en el archivo de tiempos:")
+    for col in df_tiempos.columns:
+        col_str = str(col).strip()
+        st.write(f"  - '{col_str}'")
+    
+    for col in df_tiempos.columns:
+        col_str = str(col).strip()
+        
+        # Buscar columnas que contienen "a. m." o "p. m."
+        if 'a. m.' in col_str or 'p. m.' in col_str:
+            columnas_horas.append(col)
+            continue
+        
+        # Buscar columnas que contienen "AM" o "PM"
+        if ' AM' in col_str or ' PM' in col_str:
+            columnas_horas.append(col)
+            continue
+        
+        # Buscar columnas con formato de hora (contiene ":" y números)
+        if ':' in col_str and re.search(r'\d{1,2}:\d{2}', col_str):
+            columnas_horas.append(col)
+            continue
+        
+        # Buscar columnas que son números de hora (ej: "6", "7", "8", etc.)
+        try:
+            num = float(col_str.replace(',', '.'))
+            if 0 <= num <= 24:
+                columnas_horas.append(col)
+                continue
+        except:
+            pass
+    
+    return columnas_horas
+
+def mapear_hora_a_rango(col_hora_str):
+    """
+    Convierte el nombre de la columna de hora a un rango estándar
+    """
+    col_hora_str = col_hora_str.strip()
+    
+    # Diccionario de mapeo directo
+    mapeo_directo = {
+        '06:00 a. m.': '6:00 A 7:00',
+        '07:00 a. m.': '7:00 A 8:00',
+        '08:00 a. m.': '8:00 A 9:00',
+        '09:00 a. m.': '9:00 A 10:00',
+        '10:00 a. m.': '10:00 A 11:00',
+        '11:00 a. m.': '11:00 A 12:00',
+        '12:00 p. m.': '12:00 A 13:00',
+        '01:00 p. m.': '13:00 A 14:00',
+        '02:00 p. m.': '14:00 A 15:00',
+        '03:00 p. m.': '15:00 A 16:00',
+        '04:00 p. m.': '16:00 A 17:00',
+        '05:00 p. m.': '17:00 A 18:00',
+        '06:00 p. m.': '18:00 A 19:00',
+        '07:00 p. m.': '19:00 A 20:00',
+        '08:00 p. m.': '20:00 A 21:00',
+        '09:00 p. m.': '21:00 A 22:00',
+        '10:00 p. m.': '22:00 A 23:00',
+        '11:00 p. m.': '23:00 A 0:00',
+        '6 AM': '6:00 A 7:00',
+        '7 AM': '7:00 A 8:00',
+        '8 AM': '8:00 A 9:00',
+        '9 AM': '9:00 A 10:00',
+        '10 AM': '10:00 A 11:00',
+        '11 AM': '11:00 A 12:00',
+        '12 PM': '12:00 A 13:00',
+        '1 PM': '13:00 A 14:00',
+        '2 PM': '14:00 A 15:00',
+        '3 PM': '15:00 A 16:00',
+        '4 PM': '16:00 A 17:00',
+        '5 PM': '17:00 A 18:00',
+        '6 PM': '18:00 A 19:00',
+        '7 PM': '19:00 A 20:00',
+        '8 PM': '20:00 A 21:00',
+        '9 PM': '21:00 A 22:00',
+        '10 PM': '22:00 A 23:00',
+        '11 PM': '23:00 A 0:00',
+    }
+    
+    # 1. Mapeo directo
+    if col_hora_str in mapeo_directo:
+        return mapeo_directo[col_hora_str]
+    
+    # 2. Buscar por hora numérica (ej: extraer "09:00" de "09:00 a. m.")
+    hora_match = re.search(r'(\d{1,2}):(\d{2})', col_hora_str)
+    if hora_match:
+        hora = int(hora_match.group(1))
+        minuto = int(hora_match.group(2))
+        
+        # Determinar si es AM o PM
+        es_pm = 'p. m.' in col_hora_str.lower() or 'pm' in col_hora_str.lower()
+        es_am = 'a. m.' in col_hora_str.lower() or 'am' in col_hora_str.lower()
+        
+        # Si no tiene AM/PM explícito, usar la hora para determinar
+        if not es_am and not es_pm:
+            if hora >= 6 and hora < 12:
+                es_am = True
+            elif hora >= 12 and hora < 24:
+                es_pm = True
+                if hora > 12:
+                    hora = hora - 12
+            elif hora == 0 or hora == 24:
+                hora = 12
+                es_am = True
+        
+        # Convertir a formato 24h
+        if es_pm and hora != 12:
+            hora_24 = hora + 12
+        elif es_am and hora == 12:
+            hora_24 = 0
+        else:
+            hora_24 = hora if es_am else hora + 12
+        
+        # Crear rango
+        if 6 <= hora_24 < 24:
+            inicio = f"{hora_24:02d}:00"
+            fin = f"{(hora_24 + 1):02d}:00"
+            return f"{inicio} A {fin}"
+    
+    # 3. Buscar por número de hora (ej: "6", "7", "8")
+    try:
+        hora_num = float(col_hora_str.replace(',', '.'))
+        if 0 <= hora_num <= 24:
+            hora_int = int(hora_num)
+            inicio = f"{hora_int:02d}:00"
+            fin = f"{(hora_int + 1):02d}:00"
+            return f"{inicio} A {fin}"
+    except:
+        pass
+    
+    return None
+
 def procesar_archivo_tiempos(df_tiempos):
     """
     Procesa el archivo de tiempos de agentes.
@@ -291,27 +393,16 @@ def procesar_archivo_tiempos(df_tiempos):
     """
     tiempos_dict = {}
     
-    # Identificar las columnas de horas
-    columnas_horas = []
-    for col in df_tiempos.columns:
-        col_str = str(col).strip()
-        # Buscar columnas que parezcan horas
-        if ':' in col_str and ('a. m.' in col_str or 'p. m.' in col_str):
-            columnas_horas.append(col)
-        elif ':' in col_str and ('AM' in col_str or 'PM' in col_str):
-            columnas_horas.append(col)
-    
-    # Si no encontró con el formato completo, buscar por hora numérica
-    if not columnas_horas:
-        for col in df_tiempos.columns:
-            col_str = str(col).strip()
-            # Buscar formato "06:00", "07:00", etc.
-            if re.match(r'^\d{2}:\d{2}$', col_str):
-                columnas_horas.append(col)
+    # Identificar columnas de horas
+    columnas_horas = identificar_columnas_horas(df_tiempos)
     
     if not columnas_horas:
         st.warning("No se encontraron columnas de horas en el archivo de tiempos")
+        st.write("📋 Columnas encontradas:", list(df_tiempos.columns))
         return tiempos_dict
+    
+    st.info(f"✅ Columnas de horas identificadas: {len(columnas_horas)}")
+    st.write("Columnas de horas:", columnas_horas)
     
     # Buscar la columna de Estatus
     estatus_col = None
@@ -323,6 +414,7 @@ def procesar_archivo_tiempos(df_tiempos):
     
     if not estatus_col:
         st.warning("No se encontró la columna de Estatus en el archivo de tiempos")
+        st.write("🔍 Buscando columna que contenga 'Estatus'...")
         return tiempos_dict
     
     # Buscar la columna de nombre
@@ -338,10 +430,12 @@ def procesar_archivo_tiempos(df_tiempos):
         return tiempos_dict
     
     # Filtrar solo filas con Estatus = "TOTAL"
-    df_total = df_tiempos[df_tiempos[estatus_col].astype(str).str.upper().str.strip() == 'TOTAL']
+    df_tiempos['Estatus_Str'] = df_tiempos[estatus_col].astype(str).str.upper().str.strip()
+    df_total = df_tiempos[df_tiempos['Estatus_Str'] == 'TOTAL']
     
     if len(df_total) == 0:
         st.warning("No se encontraron filas con Estatus = 'TOTAL' en el archivo de tiempos")
+        st.write("📊 Estatus disponibles:", df_tiempos['Estatus_Str'].unique().tolist())
         return tiempos_dict
     
     st.info(f"⏱️ Encontradas {len(df_total)} filas con Estatus = 'TOTAL'")
@@ -379,21 +473,7 @@ def procesar_archivo_tiempos(df_tiempos):
                     
                     # Obtener el rango de hora correspondiente
                     col_hora_str = str(col_hora).strip()
-                    
-                    # Intentar diferentes formas de mapeo
-                    rango_hora = None
-                    
-                    # 1. Mapeo directo
-                    if col_hora_str in HORAS_ARCHIVO:
-                        rango_hora = HORAS_ARCHIVO[col_hora_str]
-                    # 2. Buscar por hora numérica (ej: "09:00" en "09:00 a. m.")
-                    else:
-                        # Extraer la hora numérica (ej: "09:00" de "09:00 a. m.")
-                        hora_match = re.search(r'(\d{2}:\d{2})', col_hora_str)
-                        if hora_match:
-                            hora_num = hora_match.group(1)
-                            if hora_num in HORAS_ARCHIVO_SHORT:
-                                rango_hora = HORAS_ARCHIVO_SHORT[hora_num]
+                    rango_hora = mapear_hora_a_rango(col_hora_str)
                     
                     if not rango_hora:
                         continue
@@ -550,7 +630,7 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
                     with st.expander("🔍 Ver ejemplos de tiempos procesados"):
                         ejemplos = list(tiempos_dict.items())[:10]
                         for key, valor in ejemplos:
-                            st.write(f"  {key} → {valor:.2f} horas")
+                            st.write(f"  {key} → {valor:.4f} horas ({valor*60:.2f} minutos)")
                 else:
                     st.warning("No se encontraron datos de tiempo en el archivo de tiempos")
                     
@@ -638,22 +718,6 @@ with col2:
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
-# Información de columnas
-if archivo_llamadas:
-    st.info("📋 Columnas requeridas: 'Fecha y hora inicio', 'Agente' y 'Disposition - POSPAGO BAIT'")
-    
-    with st.expander("🔍 Ver muestra de datos"):
-        try:
-            df_muestra = leer_archivo(archivo_llamadas)
-            if df_muestra is not None:
-                st.write("📊 Muestra de los primeros 5 registros:")
-                st.dataframe(df_muestra.head(), use_container_width=True)
-                
-                st.write("📋 Columnas disponibles:")
-                st.code(", ".join(df_muestra.columns.tolist()))
-        except Exception as e:
-            st.error(f"Error al mostrar muestra: {e}")
-
 # Procesar datos
 if procesar and archivo_llamadas:
     try:
@@ -668,9 +732,13 @@ if procesar and archivo_llamadas:
                 if df_tiempos is not None:
                     st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
                     
-                    with st.expander("🔍 Ver columnas del archivo de tiempos"):
+                    # Mostrar información del archivo de tiempos
+                    with st.expander("🔍 Ver estructura del archivo de tiempos"):
                         st.write("📋 Columnas disponibles:")
                         st.code(", ".join(df_tiempos.columns.tolist()))
+                        
+                        st.write("📊 Muestra de los primeros 5 registros:")
+                        st.dataframe(df_tiempos.head(), use_container_width=True)
                         
                         # Mostrar filas con TOTAL
                         estatus_col = None
@@ -680,7 +748,8 @@ if procesar and archivo_llamadas:
                                 break
                         
                         if estatus_col:
-                            df_total = df_tiempos[df_tiempos[estatus_col].astype(str).str.upper().str.strip() == 'TOTAL']
+                            df_tiempos['Estatus_Str'] = df_tiempos[estatus_col].astype(str).str.upper().str.strip()
+                            df_total = df_tiempos[df_tiempos['Estatus_Str'] == 'TOTAL']
                             st.write(f"📊 Filas con Estatus = 'TOTAL': {len(df_total)}")
                             if len(df_total) > 0:
                                 st.dataframe(df_total.head(), use_container_width=True)
