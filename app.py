@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import os
 import io
 
 # Configuración de la página
@@ -53,6 +52,9 @@ st.markdown("""
         padding: 5px 10px;
         border-radius: 20px;
         font-size: 12px;
+    }
+    .stDataFrame {
+        width: 100%;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -243,12 +245,20 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         df_llamadas['Fecha_Procesada'] = df_llamadas[fecha_col].apply(procesar_fecha)
         df_llamadas = df_llamadas.dropna(subset=['Fecha_Procesada'])
         
+        if len(df_llamadas) == 0:
+            st.error("No se pudieron procesar fechas válidas. Verifica el formato de fecha.")
+            return None
+        
         progress_bar.progress(30)
         
         # 3. Extraer hora y rango
         df_llamadas['Hora'] = df_llamadas['Fecha_Procesada'].dt.hour
         df_llamadas['Rango_Hora'] = df_llamadas['Hora'].apply(obtener_rango_hora)
         df_llamadas = df_llamadas.dropna(subset=['Rango_Hora'])
+        
+        if len(df_llamadas) == 0:
+            st.error("No hay registros en el rango de 9:00 a 18:00")
+            return None
         
         progress_bar.progress(40)
         
@@ -283,7 +293,7 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         agentes_finales.extend([a for a in agentes_disponibles if a not in agentes_finales])
         
         # 8. Crear reporte completo
-        reporte = pd.DataFrame()
+        reporte_list = []
         
         for agente in agentes_finales:
             for rango in RANGOS_HORA:
@@ -300,11 +310,14 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
                         'Ventas': 0
                     })
                 
+                row['Llamadas'] = row['Registros']
                 row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
                 row['Total conexión'] = 0
                 row['VPH'] = 0
                 
-                reporte = pd.concat([reporte, pd.DataFrame([row])], ignore_index=True)
+                reporte_list.append(row)
+        
+        reporte = pd.DataFrame(reporte_list)
         
         progress_bar.progress(80)
         
@@ -350,7 +363,6 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         # 11. Reordenar columnas
         columnas_finales = ['AGENTE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
         reporte = reporte[columnas_finales]
-        reporte['Llamadas'] = reporte['Registros']
         
         progress_bar.progress(100)
         
@@ -528,7 +540,8 @@ if procesar and archivo_llamadas:
     except Exception as e:
         st.error(f"❌ Error al procesar los datos: {str(e)}")
         import traceback
-        st.code(traceback.format_exc())
+        with st.expander("Ver detalles del error"):
+            st.code(traceback.format_exc())
 
 elif procesar and not archivo_llamadas:
     st.warning("⚠️ Por favor, sube al menos el archivo de llamadas")
