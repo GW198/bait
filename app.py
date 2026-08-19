@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import io
+import re
 
 # Configuración de la página
 st.set_page_config(
@@ -38,23 +39,6 @@ st.markdown("""
     .stat-label {
         color: #666;
         font-size: 14px;
-    }
-    .success-badge {
-        background: #d4edda;
-        color: #155724;
-        padding: 5px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-    }
-    .warning-badge {
-        background: #fff3cd;
-        color: #856404;
-        padding: 5px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-    }
-    .stDataFrame {
-        width: 100%;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -214,6 +198,33 @@ def leer_archivo(archivo):
         return None
 
 @st.cache_data
+def limpiar_valor_numerico(valor):
+    """Limpia un valor para convertirlo a número"""
+    if pd.isna(valor):
+        return 0
+    
+    # Si ya es número
+    if isinstance(valor, (int, float)):
+        return float(valor) if not pd.isna(valor) else 0
+    
+    # Si es string, limpiar
+    if isinstance(valor, str):
+        # Quitar espacios y caracteres no numéricos excepto punto y coma
+        valor = valor.strip()
+        # Reemplazar comas por puntos (formato europeo)
+        valor = valor.replace(',', '.')
+        # Extraer solo números y puntos
+        valor = re.sub(r'[^0-9.]', '', valor)
+        if valor == '':
+            return 0
+        try:
+            return float(valor)
+        except:
+            return 0
+    
+    return 0
+
+@st.cache_data
 def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
     """Procesa los datos de llamadas y genera el reporte"""
     
@@ -323,35 +334,47 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         
         # 9. Agregar conexiones si existen
         if incluir_conexiones and df_conexiones is not None and len(df_conexiones) > 0:
-            cols_conex = df_conexiones.columns.tolist()
-            agente_col_conex = None
-            rango_col_conex = None
-            horas_col_conex = None
-            
-            for col in cols_conex:
-                if 'agente' in col.lower():
-                    agente_col_conex = col
-                if 'rango' in col.lower() or 'hora' in col.lower():
-                    rango_col_conex = col
-                if 'conexion' in col.lower() or 'total' in col.lower():
-                    horas_col_conex = col
-            
-            if agente_col_conex and rango_col_conex and horas_col_conex:
-                df_conexiones['Agente_Nombre'] = df_conexiones[agente_col_conex].apply(convertir_agente)
+            try:
+                cols_conex = df_conexiones.columns.tolist()
+                agente_col_conex = None
+                rango_col_conex = None
+                horas_col_conex = None
                 
-                conexiones_dict = {}
-                for _, row in df_conexiones.iterrows():
-                    agente = row['Agente_Nombre']
-                    rango = str(row[rango_col_conex]).strip()
-                    horas = float(row[horas_col_conex]) if pd.notna(row[horas_col_conex]) else 0
-                    key = f"{agente}|{rango}"
-                    conexiones_dict[key] = horas
+                for col in cols_conex:
+                    col_lower = col.lower()
+                    if 'agente' in col_lower:
+                        agente_col_conex = col
+                    if 'rango' in col_lower or 'hora' in col_lower:
+                        rango_col_conex = col
+                    if 'conexion' in col_lower or 'total' in col_lower:
+                        horas_col_conex = col
                 
-                for idx, row in reporte.iterrows():
-                    key = f"{row['AGENTE']}|{row['Rango_Hora']}"
-                    horas = conexiones_dict.get(key, 0)
-                    reporte.at[idx, 'Total conexión'] = round(horas, 2)
-                    reporte.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0
+                if agente_col_conex and rango_col_conex and horas_col_conex:
+                    # Convertir agentes en conexiones
+                    df_conexiones['Agente_Nombre'] = df_conexiones[agente_col_conex].apply(convertir_agente)
+                    
+                    # Limpiar y convertir horas
+                    df_conexiones['Horas_Limpias'] = df_conexiones[horas_col_conex].apply(limpiar_valor_numerico)
+                    
+                    # Crear diccionario de conexiones
+                    conexiones_dict = {}
+                    for _, row in df_conexiones.iterrows():
+                        agente = row['Agente_Nombre']
+                        rango = str(row[rango_col_conex]).strip()
+                        horas = row['Horas_Limpias']
+                        key = f"{agente}|{rango}"
+                        conexiones_dict[key] = horas
+                    
+                    # Actualizar reporte
+                    for idx, row in reporte.iterrows():
+                        key = f"{row['AGENTE']}|{row['Rango_Hora']}"
+                        horas = conexiones_dict.get(key, 0)
+                        reporte.at[idx, 'Total conexión'] = round(horas, 2)
+                        reporte.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0
+                else:
+                    st.warning("No se encontraron las columnas necesarias en el archivo de conexiones")
+            except Exception as e:
+                st.warning(f"Error al procesar conexiones: {e}. Continuando sin conexiones.")
         
         progress_bar.progress(90)
         
@@ -431,7 +454,7 @@ if procesar and archivo_llamadas:
             # Procesar datos
             reporte = procesar_datos(df_llamadas, df_conexiones, incluir_conexiones)
             
-            if reporte is not None:
+            if reporte is not None and len(reporte) > 0:
                 st.balloons()
                 
                 # Mostrar estadísticas
@@ -536,6 +559,8 @@ if procesar and archivo_llamadas:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
+            else:
+                st.warning("No se generaron datos. Verifica que el archivo tenga información válida.")
                 
     except Exception as e:
         st.error(f"❌ Error al procesar los datos: {str(e)}")
