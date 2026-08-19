@@ -82,9 +82,9 @@ RANGOS_HORA = [
 def convertir_agente(agente):
     """Convierte el código del agente a nombre completo"""
     if pd.isna(agente):
-        return agente
+        return None
     clave = str(agente).upper().strip()
-    return MAPEO_AGENTES.get(clave, agente)
+    return MAPEO_AGENTES.get(clave, str(agente))
 
 @st.cache_data
 def procesar_fecha(fecha_str):
@@ -273,8 +273,12 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         
         progress_bar.progress(40)
         
-        # 4. Convertir agentes
+        # 4. Convertir agentes - asegurar que todos sean strings
         df_llamadas['Agente_Nombre'] = df_llamadas[agente_col].apply(convertir_agente)
+        # Eliminar filas con agentes nulos
+        df_llamadas = df_llamadas.dropna(subset=['Agente_Nombre'])
+        # Asegurar que todos los agentes sean strings
+        df_llamadas['Agente_Nombre'] = df_llamadas['Agente_Nombre'].astype(str)
         
         progress_bar.progress(50)
         
@@ -296,10 +300,17 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         
         agrupado.columns = ['AGENTE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
         
+        # Asegurar que AGENTE sea string
+        agrupado['AGENTE'] = agrupado['AGENTE'].astype(str)
+        
         progress_bar.progress(70)
         
         # 7. Obtener lista de agentes
-        agentes_disponibles = df_llamadas['Agente_Nombre'].unique()
+        agentes_disponibles = agrupado['AGENTE'].unique().tolist()
+        # Filtrar agentes nulos o vacíos
+        agentes_disponibles = [a for a in agentes_disponibles if a and a != 'nan' and a != 'None']
+        
+        # Ordenar agentes
         agentes_finales = [a for a in AGENTES_ORDER if a in agentes_disponibles]
         agentes_finales.extend([a for a in agentes_disponibles if a not in agentes_finales])
         
@@ -330,6 +341,10 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
         
         reporte = pd.DataFrame(reporte_list)
         
+        # Asegurar que todas las columnas sean del tipo correcto
+        reporte['AGENTE'] = reporte['AGENTE'].astype(str)
+        reporte['Rango_Hora'] = reporte['Rango_Hora'].astype(str)
+        
         progress_bar.progress(80)
         
         # 9. Agregar conexiones si existen
@@ -352,6 +367,7 @@ def procesar_datos(df_llamadas, df_conexiones=None, incluir_conexiones=True):
                 if agente_col_conex and rango_col_conex and horas_col_conex:
                     # Convertir agentes en conexiones
                     df_conexiones['Agente_Nombre'] = df_conexiones[agente_col_conex].apply(convertir_agente)
+                    df_conexiones['Agente_Nombre'] = df_conexiones['Agente_Nombre'].astype(str)
                     
                     # Limpiar y convertir horas
                     df_conexiones['Horas_Limpias'] = df_conexiones[horas_col_conex].apply(limpiar_valor_numerico)
@@ -509,56 +525,63 @@ if procesar and archivo_llamadas:
                 # Mostrar tabla
                 st.subheader("📊 Reporte de Agentes")
                 
-                # Selector de agente para filtrar
-                agentes = ['Todos'] + sorted(reporte['AGENTE'].unique().tolist())
-                filtro_agente = st.selectbox("Filtrar por agente:", agentes)
+                # Obtener lista de agentes únicos y convertir a string
+                agentes_unicos = reporte['AGENTE'].unique().tolist()
+                agentes_unicos = [str(a) for a in agentes_unicos if a and str(a) != 'nan' and str(a) != 'None']
+                agentes_unicos = sorted(agentes_unicos)
                 
-                if filtro_agente != 'Todos':
-                    reporte_filtrado = reporte[reporte['AGENTE'] == filtro_agente]
-                else:
-                    reporte_filtrado = reporte
-                
-                # Mostrar tabla
-                st.dataframe(
-                    reporte_filtrado,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "AGENTE": st.column_config.TextColumn("Agente"),
-                        "Rango_Hora": st.column_config.TextColumn("Rango Hora"),
-                        "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
-                        "Registros": st.column_config.NumberColumn("Registros"),
-                        "Llamadas": st.column_config.NumberColumn("Llamadas"),
-                        "Contacto": st.column_config.NumberColumn("Contacto"),
-                        "Ventas": st.column_config.NumberColumn("Ventas"),
-                        "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
-                        "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
-                    }
-                )
-                
-                # Descargar Excel
-                st.subheader("📥 Descargar Reporte")
-                
-                # Crear archivo Excel en memoria
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    reporte.to_excel(writer, sheet_name='Reporte', index=False)
+                if agentes_unicos:
+                    agentes = ['Todos'] + agentes_unicos
+                    filtro_agente = st.selectbox("Filtrar por agente:", agentes)
                     
-                    # Ajustar ancho de columnas
-                    worksheet = writer.sheets['Reporte']
-                    for idx, col in enumerate(reporte.columns):
-                        max_len = max(reporte[col].astype(str).str.len().max(), len(col)) + 2
-                        worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
-                
-                output.seek(0)
-                
-                st.download_button(
-                    label="⬇️ Descargar Excel",
-                    data=output,
-                    file_name=f"reporte_agentes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                    if filtro_agente != 'Todos':
+                        reporte_filtrado = reporte[reporte['AGENTE'] == filtro_agente]
+                    else:
+                        reporte_filtrado = reporte
+                    
+                    # Mostrar tabla
+                    st.dataframe(
+                        reporte_filtrado,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "AGENTE": st.column_config.TextColumn("Agente"),
+                            "Rango_Hora": st.column_config.TextColumn("Rango Hora"),
+                            "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
+                            "Registros": st.column_config.NumberColumn("Registros"),
+                            "Llamadas": st.column_config.NumberColumn("Llamadas"),
+                            "Contacto": st.column_config.NumberColumn("Contacto"),
+                            "Ventas": st.column_config.NumberColumn("Ventas"),
+                            "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
+                            "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
+                        }
+                    )
+                    
+                    # Descargar Excel
+                    st.subheader("📥 Descargar Reporte")
+                    
+                    # Crear archivo Excel en memoria
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        reporte.to_excel(writer, sheet_name='Reporte', index=False)
+                        
+                        # Ajustar ancho de columnas
+                        worksheet = writer.sheets['Reporte']
+                        for idx, col in enumerate(reporte.columns):
+                            max_len = max(reporte[col].astype(str).str.len().max(), len(col)) + 2
+                            worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
+                    
+                    output.seek(0)
+                    
+                    st.download_button(
+                        label="⬇️ Descargar Excel",
+                        data=output,
+                        file_name=f"reporte_agentes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No se encontraron agentes en los datos procesados.")
             else:
                 st.warning("No se generaron datos. Verifica que el archivo tenga información válida.")
                 
