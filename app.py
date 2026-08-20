@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos personalizados (sin cambios)
+# Estilos personalizados
 st.markdown("""
     <style>
     .main-header {
@@ -40,35 +40,85 @@ st.markdown("""
         color: #666;
         font-size: 14px;
     }
+    .success-box {
+        background: #d4edda;
+        padding: 10px;
+        border-radius: 5px;
+        border-left: 4px solid #28a745;
+        margin: 10px 0;
+    }
+    .warning-box {
+        background: #fff3cd;
+        padding: 10px;
+        border-radius: 5px;
+        border-left: 4px solid #ffc107;
+        margin: 10px 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 # Título
 st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1><p>Sube tu archivo de llamadas y genera reportes automáticos</p></div>', unsafe_allow_html=True)
 
-# Mapeo de agentes (sin cambios)
+# ============================================
+# MAPEO DE AGENTES (ACTUALIZADO)
+# ============================================
 MAPEO_AGENTES = {
+    # Códigos de usuario estándar
     'FALCANTARA': 'Fergie Zoe Alcantara',
     'JCARDENAS': 'Jorge Cardenas',
     'MGONZALEZ': 'Maria Gonzalez',
     'AGRAMONTE': 'Ana Gramonte',
     'RPEREZ': 'Roberto Perez',
     'LSANCHEZ': 'Laura Sanchez',
+    
+    # Códigos con prefijo BT-
+    'BT-FALCANTARA': 'Fergie Zoe Alcantara',
+    'BT-JCARDENAS': 'Jorge Cardenas',
+    'BT-MGONZALEZ': 'Maria Gonzalez',
+    'BT-AGRAMONTE': 'Ana Gramonte',
+    'BT-RPEREZ': 'Roberto Perez',
+    'BT-LSANCHEZ': 'Laura Sanchez',
+    
+    # Nombres completos - Eduardo Reyes Abasolo
     'EDUARDO REYES ABASOLO': 'Eduardo Reyes Abasolo',
-    'KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
-    'LEONEL PRECIADO MARTINEZ': 'Leonel Preciado Martínez',
-    'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
-    'ERUIZ': 'Emmanuel Ruiz Vera',
     'EDUARDO  ABASOLO REYES': 'Eduardo Reyes Abasolo',
-    'CREBECA': 'Rebeca Carmona Martell',
+    'BT-EDUARDO': 'Eduardo Reyes Abasolo',
+    'EDUARDO ABASOLO': 'Eduardo Reyes Abasolo',
+    
+    # Nombres completos - Brebeca Carmona Martell
+    'BRECECA CARMONA MARTELL': 'Brebeca Carmona Martell',
+    'REBECA  CARMONA MARTELL': 'Brebeca Carmona Martell',
+    'BT-CREBECA': 'Brebeca Carmona Martell',
+    'BT-REBECA': 'Brebeca Carmona Martell',
+    'CREBECA': 'Brebeca Carmona Martell',
+    'REBECA CARMONA': 'Brebeca Carmona Martell',
+    
+    # Nombres completos - Kaelan Andre Gutierrez Gonzalez
     'KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
-    'FERGIE ZOE  ALCANTARA GARCÍA': 'Fergie Zoe Alcantara',
+    ' KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
+    'BT-KAELAN': 'Kaelan Andre Gutierrez Gonzalez',
+    'KAELAN GUTIERREZ': 'Kaelan Andre Gutierrez Gonzalez',
+    
+    # Nombres completos - Leonel Preciado Martínez
+    'LEONEL PRECIADO MARTINEZ': 'Leonel Preciado Martínez',
+    'BT-LEONEL': 'Leonel Preciado Martínez',
+    'LEONEL PRECIADO': 'Leonel Preciado Martínez',
+    
+    # Nombres completos - Ana Karen Padilla Martínez
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
+    'BT-ANA': 'Ana Karen Padilla Martínez',
+    'ANA KAREN PADILLA': 'Ana Karen Padilla Martínez',
+    
+    # Nombres completos - Emmanuel Ruiz Vera
+    'EMMANUEL RUIZ VERA': 'Emmanuel Ruiz Vera',
+    'BT-EMMANUEL': 'Emmanuel Ruiz Vera',
+    'EMMANUEL RUIZ': 'Emmanuel Ruiz Vera',
 }
 
 AGENTES_ORDER = [
     'Eduardo Reyes Abasolo',
-    'Rebeca Carmona Martell',
+    'Brebeca Carmona Martell',
     'Kaelan Andre Gutierrez Gonzalez',
     'Leonel Preciado Martínez',
     'Ana Karen Padilla Martínez',
@@ -81,19 +131,33 @@ RANGOS_HORA = [
     '15:00 A 16:00', '16:00 A 17:00', '17:00 A 18:00'
 ]
 
-# Funciones de procesamiento (mantener las existentes)
+# ============================================
+# FUNCIONES DE PROCESAMIENTO
+# ============================================
+
 @st.cache_data
 def convertir_agente(agente):
     """Convierte el código del agente a nombre completo"""
     if pd.isna(agente):
         return None
+    
     agente_str = str(agente).strip()
+    if not agente_str:
+        return None
+    
     agente_upper = agente_str.upper()
     
+    # Buscar coincidencia exacta o parcial en el mapeo
     for key, value in MAPEO_AGENTES.items():
-        if key.upper() in agente_upper or agente_upper in key.upper():
+        key_upper = key.upper()
+        # Coincidencia exacta
+        if agente_upper == key_upper:
+            return value
+        # Coincidencia parcial (el código está contenido en el nombre o viceversa)
+        if key_upper in agente_upper or agente_upper in key_upper:
             return value
     
+    # Si no encuentra, devolver el valor original
     return agente_str
 
 @st.cache_data
@@ -104,10 +168,12 @@ def procesar_fecha(fecha_str):
     
     try:
         if isinstance(fecha_str, str):
+            # Limpiar el string
             fecha_str = fecha_str.replace('a. m.', 'AM').replace('p. m.', 'PM')
             fecha_str = fecha_str.replace('a.m.', 'AM').replace('p.m.', 'PM')
             fecha_str = fecha_str.replace('a. m', 'AM').replace('p. m', 'PM')
             
+            # Intentar diferentes formatos
             formatos = [
                 '%d/%m/%Y %I:%M:%S %p',
                 '%d/%m/%Y %I:%M %p',
@@ -121,6 +187,9 @@ def procesar_fecha(fecha_str):
                 '%d-%m-%Y %I:%M %p',
                 '%Y/%m/%d %H:%M:%S',
                 '%Y/%m/%d %H:%M',
+                '%d-%m-%Y',
+                '%d/%m/%Y',
+                '%Y-%m-%d',
             ]
             
             for formato in formatos:
@@ -129,15 +198,18 @@ def procesar_fecha(fecha_str):
                 except:
                     continue
             
+            # Intentar con dateutil si está disponible
             try:
                 from dateutil import parser
                 return parser.parse(fecha_str)
             except:
                 pass
         
+        # Si ya es datetime
         if isinstance(fecha_str, datetime):
             return fecha_str
             
+        # Si es pandas Timestamp
         if hasattr(fecha_str, 'to_pydatetime'):
             return fecha_str.to_pydatetime()
             
@@ -194,8 +266,13 @@ def leer_archivo(archivo):
     
     try:
         if extension == 'csv':
-            df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False, dtype=str)
+            # Para CSV, leer con diferentes codificaciones
+            try:
+                df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False, dtype=str)
+            except:
+                df = pd.read_csv(archivo, encoding='latin-1', low_memory=False, dtype=str)
         else:
+            # Intentar con openpyxl primero
             try:
                 df = pd.read_excel(archivo, engine='openpyxl', dtype=str)
             except:
@@ -239,18 +316,22 @@ def identificar_columnas_horas(df_tiempos):
     for col in df_tiempos.columns:
         col_str = str(col).strip()
         
+        # Buscar columnas que contienen "a. m." o "p. m."
         if 'a. m.' in col_str or 'p. m.' in col_str:
             columnas_horas.append(col)
             continue
         
+        # Buscar columnas que contienen "AM" o "PM"
         if ' AM' in col_str or ' PM' in col_str:
             columnas_horas.append(col)
             continue
         
+        # Buscar columnas con formato de hora
         if ':' in col_str and re.search(r'\d{1,2}:\d{2}', col_str):
             columnas_horas.append(col)
             continue
         
+        # Buscar columnas que son números de hora
         try:
             num = float(col_str.replace(',', '.'))
             if 0 <= num <= 24:
@@ -304,9 +385,11 @@ def mapear_hora_a_rango(col_hora_str):
         '11 PM': '23:00 A 0:00',
     }
     
+    # 1. Mapeo directo
     if col_hora_str in mapeo_directo:
         return mapeo_directo[col_hora_str]
     
+    # 2. Buscar por hora numérica
     hora_match = re.search(r'(\d{1,2}):(\d{2})', col_hora_str)
     if hora_match:
         hora = int(hora_match.group(1))
@@ -338,6 +421,7 @@ def mapear_hora_a_rango(col_hora_str):
             fin = f"{(hora_24 + 1):02d}:00"
             return f"{inicio} A {fin}"
     
+    # 3. Buscar por número de hora
     try:
         hora_num = float(col_hora_str.replace(',', '.'))
         if 0 <= hora_num <= 24:
@@ -354,12 +438,14 @@ def procesar_archivo_tiempos(df_tiempos):
     """Procesa el archivo de tiempos de agentes."""
     tiempos_dict = {}
     
+    # Identificar columnas de horas
     columnas_horas = identificar_columnas_horas(df_tiempos)
     
     if not columnas_horas:
         st.warning("No se encontraron columnas de horas en el archivo de tiempos")
         return tiempos_dict
     
+    # Buscar columna de Estatus
     estatus_col = None
     for col in df_tiempos.columns:
         col_str = str(col).strip()
@@ -371,6 +457,7 @@ def procesar_archivo_tiempos(df_tiempos):
         st.warning("No se encontró la columna de Estatus en el archivo de tiempos")
         return tiempos_dict
     
+    # Buscar columna de nombre
     nombre_col = None
     for col in df_tiempos.columns:
         col_str = str(col).strip()
@@ -382,6 +469,7 @@ def procesar_archivo_tiempos(df_tiempos):
         st.warning("No se encontró la columna de Nombre en el archivo de tiempos")
         return tiempos_dict
     
+    # Filtrar solo filas con Estatus = "TOTAL"
     df_tiempos['Estatus_Str'] = df_tiempos[estatus_col].astype(str).str.upper().str.strip()
     df_total = df_tiempos[df_tiempos['Estatus_Str'] == 'TOTAL']
     
@@ -389,6 +477,7 @@ def procesar_archivo_tiempos(df_tiempos):
         st.warning("No se encontraron filas con Estatus = 'TOTAL' en el archivo de tiempos")
         return tiempos_dict
     
+    # Procesar cada fila de TOTAL
     for idx, row in df_total.iterrows():
         try:
             agente_val = row[nombre_col]
@@ -405,6 +494,7 @@ def procesar_archivo_tiempos(df_tiempos):
             if not agente_convertido:
                 continue
             
+            # Procesar cada columna de hora
             for col_hora in columnas_horas:
                 try:
                     valor = row[col_hora]
@@ -435,7 +525,6 @@ def procesar_archivo_tiempos(df_tiempos):
     
     return tiempos_dict
 
-# NUEVA FUNCIÓN: Identificar columnas de fecha
 def identificar_columna_fecha(df):
     """Identifica automáticamente la columna de fecha"""
     # Palabras clave para buscar columnas de fecha
@@ -450,20 +539,18 @@ def identificar_columna_fecha(df):
     # Si no encuentra, buscar columnas que contengan fechas
     for col in df.columns:
         try:
-            # Intentar convertir algunos valores a fecha
             sample = df[col].dropna().head(5)
             converted = 0
             for val in sample:
                 if procesar_fecha(val) is not None:
                     converted += 1
-            if converted >= 3:  # Si al menos 3 de 5 se convierten
+            if converted >= 3:
                 return col
         except:
             continue
     
     return None
 
-# NUEVA FUNCIÓN: Procesar datos por fecha
 @st.cache_data
 def procesar_datos_por_fecha(df_llamadas, df_tiempos=None, incluir_tiempos=True):
     """Procesa los datos de llamadas y genera el reporte agrupado por fecha"""
@@ -477,25 +564,31 @@ def procesar_datos_por_fecha(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         # Identificar columna de fecha
         fecha_col = identificar_columna_fecha(df_llamadas)
         
-        agente_col = None
-        disposition_col = None
-        
-        for col in columnas:
-            if col != fecha_col and ('agente' in col.lower() or 'agente' in col.lower()):
-                agente_col = col
-            if 'Disposition' in col or 'POSPAGO' in col:
-                disposition_col = col
-        
-        # Si no se encontró columna de fecha, buscar por nombre
+        # Si no se encontró, buscar por nombre específico
         if not fecha_col:
             for col in columnas:
                 if 'Fecha' in col and 'inicio' in col:
                     fecha_col = col
                     break
         
-        if not fecha_col or not agente_col:
-            st.error("No se encontraron las columnas necesarias: 'Fecha' y 'Agente'")
+        agente_col = None
+        disposition_col = None
+        
+        for col in columnas:
+            if col != fecha_col and ('agente' in col.lower() or 'usuario' in col.lower()):
+                agente_col = col
+            if 'Disposition' in col or 'POSPAGO' in col or 'Resultado' in col:
+                disposition_col = col
+        
+        if not fecha_col:
+            st.error("❌ No se encontró la columna de fecha. Asegúrate de que el archivo contenga una columna con fechas.")
             return None
+        
+        if not agente_col:
+            st.error("❌ No se encontró la columna de agente. Asegúrate de que el archivo contenga una columna de agente/usuario.")
+            return None
+        
+        st.info(f"✅ Columnas identificadas: Fecha='{fecha_col}', Agente='{agente_col}'")
         
         progress_bar.progress(10)
         
@@ -663,7 +756,11 @@ def guardar_excel(reporte):
         except:
             return None
 
-# Interfaz principal
+# ============================================
+# INTERFAZ PRINCIPAL
+# ============================================
+
+# Configuración de la interfaz
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -688,7 +785,10 @@ with col2:
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
-# Procesar datos
+# ============================================
+# PROCESAMIENTO DE DATOS
+# ============================================
+
 if procesar and archivo_llamadas:
     try:
         df_llamadas = leer_archivo(archivo_llamadas)
@@ -696,11 +796,24 @@ if procesar and archivo_llamadas:
         if df_llamadas is not None and len(df_llamadas) > 0:
             st.success(f"✅ Archivo de llamadas cargado: {len(df_llamadas):,} registros")
             
+            # Mostrar información del archivo
+            with st.expander("🔍 Ver estructura del archivo de llamadas"):
+                st.write("📋 Columnas disponibles:")
+                st.code(", ".join(df_llamadas.columns.tolist()))
+                st.write("📊 Muestra de los primeros 5 registros:")
+                st.dataframe(df_llamadas.head(), use_container_width=True)
+            
             df_tiempos = None
             if archivo_tiempos and incluir_tiempos:
                 df_tiempos = leer_archivo(archivo_tiempos)
                 if df_tiempos is not None:
                     st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
+                    
+                    with st.expander("🔍 Ver estructura del archivo de tiempos"):
+                        st.write("📋 Columnas disponibles:")
+                        st.code(", ".join(df_tiempos.columns.tolist()))
+                        st.write("📊 Muestra de los primeros 5 registros:")
+                        st.dataframe(df_tiempos.head(), use_container_width=True)
             
             # Procesar datos con fechas
             reporte = procesar_datos_por_fecha(df_llamadas, df_tiempos, incluir_tiempos)
@@ -708,10 +821,11 @@ if procesar and archivo_llamadas:
             if reporte is not None and len(reporte) > 0:
                 st.balloons()
                 
-                # Mostrar estadísticas generales
+                # ============================================
+                # ESTADÍSTICAS GENERALES
+                # ============================================
                 st.subheader("📈 Estadísticas del Reporte")
                 
-                # Obtener fechas disponibles
                 fechas_disponibles = sorted(reporte['FECHA'].unique())
                 total_dias = len(fechas_disponibles)
                 
@@ -770,26 +884,24 @@ if procesar and archivo_llamadas:
                         </div>
                     """, unsafe_allow_html=True)
                 
-                # Mostrar tabla con filtros
+                # ============================================
+                # FILTROS Y VISUALIZACIÓN
+                # ============================================
                 st.subheader("📊 Reporte por Fecha y Agente")
                 
-                # Filtros
                 col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
                 
                 with col_filtro1:
-                    # Filtro de fecha
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha = st.selectbox("📅 Filtrar por fecha:", fechas_opciones)
                 
                 with col_filtro2:
-                    # Filtro de agente
                     agentes_unicos = [str(a) for a in reporte['AGENTE'].unique() if a and str(a) != 'nan' and str(a) != 'None']
                     agentes_unicos = sorted(agentes_unicos)
                     agentes_opciones = ['Todos'] + agentes_unicos
                     filtro_agente = st.selectbox("👤 Filtrar por agente:", agentes_opciones)
                 
                 with col_filtro3:
-                    # Resumen por fecha
                     mostrar_resumen = st.checkbox("📊 Mostrar resumen por fecha", value=True)
                 
                 # Aplicar filtros
@@ -802,7 +914,9 @@ if procesar and archivo_llamadas:
                 if filtro_agente != 'Todos':
                     reporte_filtrado = reporte_filtrado[reporte_filtrado['AGENTE'] == filtro_agente]
                 
-                # Mostrar resumen por fecha
+                # ============================================
+                # RESUMEN POR FECHA
+                # ============================================
                 if mostrar_resumen:
                     st.subheader("📊 Resumen por Fecha")
                     
@@ -828,7 +942,9 @@ if procesar and archivo_llamadas:
                         }
                     )
                 
-                # Mostrar detalle
+                # ============================================
+                # DETALLE COMPLETO
+                # ============================================
                 st.subheader("📋 Detalle por Agente y Hora")
                 
                 st.dataframe(
@@ -849,7 +965,9 @@ if procesar and archivo_llamadas:
                     }
                 )
                 
-                # Descargar Excel
+                # ============================================
+                # DESCARGA DE REPORTE
+                # ============================================
                 st.subheader("📥 Descargar Reporte")
                 
                 output = guardar_excel(reporte)
@@ -884,12 +1002,14 @@ if procesar and archivo_llamadas:
 elif procesar and not archivo_llamadas:
     st.warning("⚠️ Por favor, sube al menos el archivo de llamadas")
 
-# Footer
+# ============================================
+# FOOTER
+# ============================================
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
         <p>📊 Procesador de Llamadas - Desarrollado con Streamlit</p>
         <p>Soporta archivos Excel (.xlsx, .xls) y CSV</p>
-        <p>✨ Ahora con agrupación por fecha</p>
+        <p>✨ Ahora con agrupación por fecha y mapeo mejorado de agentes</p>
     </div>
 """, unsafe_allow_html=True)
