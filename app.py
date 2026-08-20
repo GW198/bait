@@ -84,7 +84,10 @@ MAPEO_AGENTES = {
     'DAPEREZ': 'Daniel Alejandro Perez Rivera',
     'GORTEGA':'Guadalupe Ortega Perez',
     'RPYANEZ': 'Roberto Patricio Yañez Bajonero',
-    'ADM-LPRECIADO': 'Leonel Martinez Preciado'
+    'ADM-LPRECIADO': 'Leonel Martinez Preciado',
+    'BMG_VVPS':'Vanessa Valentina Pinto Salinas',
+    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril',
+    
     
 
     
