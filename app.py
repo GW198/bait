@@ -61,7 +61,7 @@ MAPEO_AGENTES = {
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
     'EMMANUEL RUIZ VERA': 'Emmanuel Ruiz Vera',
     'EDUARDO  ABASOLO REYES': 'Eduardo Reyes Abasolo',
-    'REBECA  CARMONA MARTELL': 'Brebeca Carmona Martell',
+    'BT-CREBECA': 'Rebeca Carmona Martell',
     ' KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
     'FERGIE ZOE  ALCANTARA GARCÍA': 'Fergie Zoe Alcantara',
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
