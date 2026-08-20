@@ -89,8 +89,20 @@ AGENTE_CAMPANA_SITE = {
     },
     'Kaelan Andre Gutierrez Gonzalez': {
         'Campaña': 'Portabilidad',
-        'SITE': 'Externo'
-    }
+        'SITE': 'México'
+    },
+    'Leonel Martinez Preciado':{
+        'Campaña': 'Portabilidad',
+        'SITE': 'México'
+    },
+    'Ana Karen Padilla Martinez':{
+        'Campaña': 'Portabilidad',
+        'SITE': 'México'
+    },
+         'Emmanuel Ruiz Vera':{
+        'Campaña': 'Portabilidad',
+        'SITE': 'México'
+    },
 }
 
 def obtener_campana(agente):
