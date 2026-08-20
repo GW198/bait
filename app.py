@@ -55,7 +55,6 @@ MAPEO_AGENTES = {
     'RPEREZ': 'Roberto Perez',
     'LSANCHEZ': 'Laura Sanchez',
     'EDUARDO REYES ABASOLO': 'Eduardo Reyes Abasolo',
-    'BRECECA CARMONA MARTELL': 'Brebeca Carmona Martell',
     'KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
     'LEONEL PRECIADO MARTINEZ': 'Leonel Preciado Martínez',
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
@@ -69,7 +68,7 @@ MAPEO_AGENTES = {
 
 AGENTES_ORDER = [
     'Eduardo Reyes Abasolo',
-    'Brebeca Carmona Martell',
+    'Rebeca Carmona Martell',
     'Kaelan Andre Gutierrez Gonzalez',
     'Leonel Preciado Martínez',
     'Ana Karen Padilla Martínez',
