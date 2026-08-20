@@ -65,55 +65,29 @@ st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1><p>Sub
 # ============================================
 MAPEO_AGENTES = {
     # Códigos de usuario estándar
-    'FALCANTARA': 'Fergie Zoe Alcantara',
-    'JCARDENAS': 'Jorge Cardenas',
-    'MGONZALEZ': 'Maria Gonzalez',
-    'AGRAMONTE': 'Ana Gramonte',
-    'RPEREZ': 'Roberto Perez',
-    'LSANCHEZ': 'Laura Sanchez',
+    'BMG_GYHV':'Greisi Yenifer Hernandez Valenzuela',
+    'BMG_LPVH':'Lorenys Patricia Villarroel Hernandez',
+    'BT-CREBECA': 'Rebeca Carmona Martell',
+    'BT-ERUIZ': 'Emmanuel Ruiz Vera',
+    'BT-KGUTIERREZ': 'Kaelan Andre Gutierrez Gonzalez',
+    'AVILLALBA': 'Astrid Milena Villalba Gómez',
+    'BMAURERA':'Barbara Camila	Maurera campos',
+    'BT-AEDUARDO': 'Eduardo Abasolo Reyes',
+    'JSGARCIA': 'Joaly Scarlet Garcia Noguera',
+    'MRODRIGUEZ': 'Meyling Yamilet Rodríguez',
+    'TKM-2701': 'Ana Karen Padilla Martinez',
+    'ZHERNANDEZ': 'Zara Stephanie Hernández Díaz',
+    'BT-FALCANTARA':'Fergie Zoe Alcantara García',
+    'AEGUTIERREZ': 'Angel Erubiel Gutierrez Martinez',
+    'BABUNDIS':'Bryan Abundis Romo',
+    'CVIVEROS':'Carlos Alexis Viveros Garcia',
+    'DAPEREZ': 'Daniel Alejandro Perez Rivera',
+    'GORTEGA':'Guadalupe Ortega Perez',
+    'RPYANEZ': 'Roberto Patricio Yañez Bajonero',
+    'ADM-LPRECIADO': 'Leonel Martinez Preciado'
     
-    # Códigos con prefijo BT-
-    'BT-FALCANTARA': 'Fergie Zoe Alcantara',
-    'BT-JCARDENAS': 'Jorge Cardenas',
-    'BT-MGONZALEZ': 'Maria Gonzalez',
-    'BT-AGRAMONTE': 'Ana Gramonte',
-    'BT-RPEREZ': 'Roberto Perez',
-    'BT-LSANCHEZ': 'Laura Sanchez',
+
     
-    # Nombres completos - Eduardo Reyes Abasolo
-    'EDUARDO REYES ABASOLO': 'Eduardo Reyes Abasolo',
-    'EDUARDO  ABASOLO REYES': 'Eduardo Reyes Abasolo',
-    'BT-EDUARDO': 'Eduardo Reyes Abasolo',
-    'EDUARDO ABASOLO': 'Eduardo Reyes Abasolo',
-    
-    # Nombres completos - Brebeca Carmona Martell
-    'BRECECA CARMONA MARTELL': 'Brebeca Carmona Martell',
-    'REBECA  CARMONA MARTELL': 'Brebeca Carmona Martell',
-    'BT-CREBECA': 'Brebeca Carmona Martell',
-    'BT-REBECA': 'Brebeca Carmona Martell',
-    'CREBECA': 'Brebeca Carmona Martell',
-    'REBECA CARMONA': 'Brebeca Carmona Martell',
-    
-    # Nombres completos - Kaelan Andre Gutierrez Gonzalez
-    'KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
-    ' KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
-    'BT-KAELAN': 'Kaelan Andre Gutierrez Gonzalez',
-    'KAELAN GUTIERREZ': 'Kaelan Andre Gutierrez Gonzalez',
-    
-    # Nombres completos - Leonel Preciado Martínez
-    'LEONEL PRECIADO MARTINEZ': 'Leonel Preciado Martínez',
-    'BT-LEONEL': 'Leonel Preciado Martínez',
-    'LEONEL PRECIADO': 'Leonel Preciado Martínez',
-    
-    # Nombres completos - Ana Karen Padilla Martínez
-    'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
-    'BT-ANA': 'Ana Karen Padilla Martínez',
-    'ANA KAREN PADILLA': 'Ana Karen Padilla Martínez',
-    
-    # Nombres completos - Emmanuel Ruiz Vera
-    'EMMANUEL RUIZ VERA': 'Emmanuel Ruiz Vera',
-    'BT-EMMANUEL': 'Emmanuel Ruiz Vera',
-    'EMMANUEL RUIZ': 'Emmanuel Ruiz Vera',
 }
 
 AGENTES_ORDER = [
