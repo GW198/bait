@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import re
 
@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos personalizados
+# Estilos personalizados (sin cambios)
 st.markdown("""
     <style>
     .main-header {
@@ -46,7 +46,7 @@ st.markdown("""
 # Título
 st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1><p>Sube tu archivo de llamadas y genera reportes automáticos</p></div>', unsafe_allow_html=True)
 
-# Mapeo de agentes
+# Mapeo de agentes (sin cambios)
 MAPEO_AGENTES = {
     'FALCANTARA': 'Fergie Zoe Alcantara',
     'JCARDENAS': 'Jorge Cardenas',
@@ -82,7 +82,7 @@ RANGOS_HORA = [
     '15:00 A 16:00', '16:00 A 17:00', '17:00 A 18:00'
 ]
 
-# Funciones de procesamiento
+# Funciones de procesamiento (mantener las existentes)
 @st.cache_data
 def convertir_agente(agente):
     """Convierte el código del agente a nombre completo"""
@@ -91,7 +91,6 @@ def convertir_agente(agente):
     agente_str = str(agente).strip()
     agente_upper = agente_str.upper()
     
-    # Buscar en el mapeo
     for key, value in MAPEO_AGENTES.items():
         if key.upper() in agente_upper or agente_upper in key.upper():
             return value
@@ -106,12 +105,10 @@ def procesar_fecha(fecha_str):
     
     try:
         if isinstance(fecha_str, str):
-            # Limpiar el string
             fecha_str = fecha_str.replace('a. m.', 'AM').replace('p. m.', 'PM')
             fecha_str = fecha_str.replace('a.m.', 'AM').replace('p.m.', 'PM')
             fecha_str = fecha_str.replace('a. m', 'AM').replace('p. m', 'PM')
             
-            # Intentar diferentes formatos
             formatos = [
                 '%d/%m/%Y %I:%M:%S %p',
                 '%d/%m/%Y %I:%M %p',
@@ -123,6 +120,8 @@ def procesar_fecha(fecha_str):
                 '%m/%d/%Y %I:%M %p',
                 '%d-%m-%Y %I:%M:%S %p',
                 '%d-%m-%Y %I:%M %p',
+                '%Y/%m/%d %H:%M:%S',
+                '%Y/%m/%d %H:%M',
             ]
             
             for formato in formatos:
@@ -131,18 +130,15 @@ def procesar_fecha(fecha_str):
                 except:
                     continue
             
-            # Intentar con dateutil si está disponible
             try:
                 from dateutil import parser
                 return parser.parse(fecha_str)
             except:
                 pass
         
-        # Si ya es datetime
         if isinstance(fecha_str, datetime):
             return fecha_str
             
-        # Si es pandas Timestamp
         if hasattr(fecha_str, 'to_pydatetime'):
             return fecha_str.to_pydatetime()
             
@@ -176,7 +172,7 @@ def obtener_rango_hora(hora):
 
 @st.cache_data
 def es_contacto(valor):
-    """Determina si un valor es contacto (TODO excepto vacío y OTROS-BUZÓN DE VOZ)"""
+    """Determina si un valor es contacto"""
     if pd.isna(valor):
         return False
     valor_str = str(valor).upper().strip()
@@ -186,7 +182,7 @@ def es_contacto(valor):
 
 @st.cache_data
 def es_venta(valor):
-    """Determina si un valor es venta (solo VENTA exacto)"""
+    """Determina si un valor es venta"""
     if pd.isna(valor):
         return False
     valor_str = str(valor).upper().strip()
@@ -199,10 +195,8 @@ def leer_archivo(archivo):
     
     try:
         if extension == 'csv':
-            # Para CSV, leer todo como string primero
             df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False, dtype=str)
         else:
-            # Intentar con openpyxl primero
             try:
                 df = pd.read_excel(archivo, engine='openpyxl', dtype=str)
             except:
@@ -215,25 +209,19 @@ def leer_archivo(archivo):
 
 @st.cache_data
 def limpiar_valor_numerico(valor):
-    """Limpia un valor para convertirlo a número flotante (minutos)"""
+    """Limpia un valor para convertirlo a número flotante"""
     if pd.isna(valor):
         return 0.0
     
-    # Si ya es número
     if isinstance(valor, (int, float)):
         return float(valor)
     
-    # Si es string, limpiar
     if isinstance(valor, str):
-        # Quitar espacios
         valor = valor.strip()
         if valor == '':
             return 0.0
         
-        # Reemplazar comas por puntos (formato europeo)
         valor = valor.replace(',', '.')
-        
-        # Extraer solo números y puntos
         valor = re.sub(r'[^0-9.]', '', valor)
         if valor == '':
             return 0.0
@@ -246,36 +234,24 @@ def limpiar_valor_numerico(valor):
     return 0.0
 
 def identificar_columnas_horas(df_tiempos):
-    """
-    Identifica las columnas de horas en el DataFrame
-    """
+    """Identifica las columnas de horas en el DataFrame"""
     columnas_horas = []
-    
-    # Mostrar todas las columnas para debug
-    st.write("🔍 Columnas encontradas en el archivo de tiempos:")
-    for col in df_tiempos.columns:
-        col_str = str(col).strip()
-        st.write(f"  - '{col_str}'")
     
     for col in df_tiempos.columns:
         col_str = str(col).strip()
         
-        # Buscar columnas que contienen "a. m." o "p. m."
         if 'a. m.' in col_str or 'p. m.' in col_str:
             columnas_horas.append(col)
             continue
         
-        # Buscar columnas que contienen "AM" o "PM"
         if ' AM' in col_str or ' PM' in col_str:
             columnas_horas.append(col)
             continue
         
-        # Buscar columnas con formato de hora (contiene ":" y números)
         if ':' in col_str and re.search(r'\d{1,2}:\d{2}', col_str):
             columnas_horas.append(col)
             continue
         
-        # Buscar columnas que son números de hora (ej: "6", "7", "8", etc.)
         try:
             num = float(col_str.replace(',', '.'))
             if 0 <= num <= 24:
@@ -287,12 +263,9 @@ def identificar_columnas_horas(df_tiempos):
     return columnas_horas
 
 def mapear_hora_a_rango(col_hora_str):
-    """
-    Convierte el nombre de la columna de hora a un rango estándar
-    """
+    """Convierte el nombre de la columna de hora a un rango estándar"""
     col_hora_str = col_hora_str.strip()
     
-    # Diccionario de mapeo directo
     mapeo_directo = {
         '06:00 a. m.': '6:00 A 7:00',
         '07:00 a. m.': '7:00 A 8:00',
@@ -332,21 +305,17 @@ def mapear_hora_a_rango(col_hora_str):
         '11 PM': '23:00 A 0:00',
     }
     
-    # 1. Mapeo directo
     if col_hora_str in mapeo_directo:
         return mapeo_directo[col_hora_str]
     
-    # 2. Buscar por hora numérica (ej: extraer "09:00" de "09:00 a. m.")
     hora_match = re.search(r'(\d{1,2}):(\d{2})', col_hora_str)
     if hora_match:
         hora = int(hora_match.group(1))
         minuto = int(hora_match.group(2))
         
-        # Determinar si es AM o PM
         es_pm = 'p. m.' in col_hora_str.lower() or 'pm' in col_hora_str.lower()
         es_am = 'a. m.' in col_hora_str.lower() or 'am' in col_hora_str.lower()
         
-        # Si no tiene AM/PM explícito, usar la hora para determinar
         if not es_am and not es_pm:
             if hora >= 6 and hora < 12:
                 es_am = True
@@ -358,7 +327,6 @@ def mapear_hora_a_rango(col_hora_str):
                 hora = 12
                 es_am = True
         
-        # Convertir a formato 24h
         if es_pm and hora != 12:
             hora_24 = hora + 12
         elif es_am and hora == 12:
@@ -366,13 +334,11 @@ def mapear_hora_a_rango(col_hora_str):
         else:
             hora_24 = hora if es_am else hora + 12
         
-        # Crear rango
         if 6 <= hora_24 < 24:
             inicio = f"{hora_24:02d}:00"
             fin = f"{(hora_24 + 1):02d}:00"
             return f"{inicio} A {fin}"
     
-    # 3. Buscar por número de hora (ej: "6", "7", "8")
     try:
         hora_num = float(col_hora_str.replace(',', '.'))
         if 0 <= hora_num <= 24:
@@ -386,25 +352,15 @@ def mapear_hora_a_rango(col_hora_str):
     return None
 
 def procesar_archivo_tiempos(df_tiempos):
-    """
-    Procesa el archivo de tiempos de agentes.
-    SOLO usa la fila con Estatus = "TOTAL" para cada agente.
-    Los valores están en MINUTOS.
-    """
+    """Procesa el archivo de tiempos de agentes."""
     tiempos_dict = {}
     
-    # Identificar columnas de horas
     columnas_horas = identificar_columnas_horas(df_tiempos)
     
     if not columnas_horas:
         st.warning("No se encontraron columnas de horas en el archivo de tiempos")
-        st.write("📋 Columnas encontradas:", list(df_tiempos.columns))
         return tiempos_dict
     
-    st.info(f"✅ Columnas de horas identificadas: {len(columnas_horas)}")
-    st.write("Columnas de horas:", columnas_horas)
-    
-    # Buscar la columna de Estatus
     estatus_col = None
     for col in df_tiempos.columns:
         col_str = str(col).strip()
@@ -414,10 +370,8 @@ def procesar_archivo_tiempos(df_tiempos):
     
     if not estatus_col:
         st.warning("No se encontró la columna de Estatus en el archivo de tiempos")
-        st.write("🔍 Buscando columna que contenga 'Estatus'...")
         return tiempos_dict
     
-    # Buscar la columna de nombre
     nombre_col = None
     for col in df_tiempos.columns:
         col_str = str(col).strip()
@@ -429,21 +383,15 @@ def procesar_archivo_tiempos(df_tiempos):
         st.warning("No se encontró la columna de Nombre en el archivo de tiempos")
         return tiempos_dict
     
-    # Filtrar solo filas con Estatus = "TOTAL"
     df_tiempos['Estatus_Str'] = df_tiempos[estatus_col].astype(str).str.upper().str.strip()
     df_total = df_tiempos[df_tiempos['Estatus_Str'] == 'TOTAL']
     
     if len(df_total) == 0:
         st.warning("No se encontraron filas con Estatus = 'TOTAL' en el archivo de tiempos")
-        st.write("📊 Estatus disponibles:", df_tiempos['Estatus_Str'].unique().tolist())
         return tiempos_dict
     
-    st.info(f"⏱️ Encontradas {len(df_total)} filas con Estatus = 'TOTAL'")
-    
-    # Procesar cada fila de TOTAL
     for idx, row in df_total.iterrows():
         try:
-            # Obtener nombre del agente
             agente_val = row[nombre_col]
             if pd.isna(agente_val):
                 continue
@@ -452,17 +400,14 @@ def procesar_archivo_tiempos(df_tiempos):
             if not agente or agente == '':
                 continue
             
-            # Limpiar nombre
             agente_limpio = agente.replace('"', '').strip()
             agente_convertido = convertir_agente(agente_limpio)
             
             if not agente_convertido:
                 continue
             
-            # Procesar cada columna de hora
             for col_hora in columnas_horas:
                 try:
-                    # Obtener valor (minutos)
                     valor = row[col_hora]
                     if pd.isna(valor):
                         continue
@@ -471,20 +416,17 @@ def procesar_archivo_tiempos(df_tiempos):
                     if minutos == 0:
                         continue
                     
-                    # Obtener el rango de hora correspondiente
                     col_hora_str = str(col_hora).strip()
                     rango_hora = mapear_hora_a_rango(col_hora_str)
                     
                     if not rango_hora:
                         continue
                     
-                    # Solo nos interesan los rangos de 9 AM a 6 PM
                     if rango_hora not in RANGOS_HORA:
                         continue
                     
-                    # Guardar minutos (convertir a horas dividiendo entre 60)
                     key = f"{agente_convertido}|{rango_hora}"
-                    tiempos_dict[key] = round(minutos / 60.0, 4)  # Convertir a horas
+                    tiempos_dict[key] = round(minutos / 60.0, 4)
                     
                 except Exception as e:
                     continue
@@ -494,30 +436,66 @@ def procesar_archivo_tiempos(df_tiempos):
     
     return tiempos_dict
 
+# NUEVA FUNCIÓN: Identificar columnas de fecha
+def identificar_columna_fecha(df):
+    """Identifica automáticamente la columna de fecha"""
+    # Palabras clave para buscar columnas de fecha
+    keywords = ['fecha', 'date', 'fech', 'día', 'dia', 'fechahora', 'fecha hora']
+    
+    for col in df.columns:
+        col_lower = str(col).lower()
+        for keyword in keywords:
+            if keyword in col_lower:
+                return col
+    
+    # Si no encuentra, buscar columnas que contengan fechas
+    for col in df.columns:
+        try:
+            # Intentar convertir algunos valores a fecha
+            sample = df[col].dropna().head(5)
+            converted = 0
+            for val in sample:
+                if procesar_fecha(val) is not None:
+                    converted += 1
+            if converted >= 3:  # Si al menos 3 de 5 se convierten
+                return col
+        except:
+            continue
+    
+    return None
+
+# NUEVA FUNCIÓN: Procesar datos por fecha
 @st.cache_data
-def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
-    """Procesa los datos de llamadas y genera el reporte"""
+def procesar_datos_por_fecha(df_llamadas, df_tiempos=None, incluir_tiempos=True):
+    """Procesa los datos de llamadas y genera el reporte agrupado por fecha"""
     
     with st.spinner('Procesando datos...'):
         progress_bar = st.progress(0)
         
-        # 1. Identificar columnas en llamadas
+        # 1. Identificar columnas
         columnas = df_llamadas.columns.tolist()
         
-        fecha_col = None
+        # Identificar columna de fecha
+        fecha_col = identificar_columna_fecha(df_llamadas)
+        
         agente_col = None
         disposition_col = None
         
         for col in columnas:
-            if 'Fecha' in col and 'inicio' in col:
-                fecha_col = col
-            if 'agente' in col.lower():
+            if col != fecha_col and ('agente' in col.lower() or 'agente' in col.lower()):
                 agente_col = col
             if 'Disposition' in col or 'POSPAGO' in col:
                 disposition_col = col
         
+        # Si no se encontró columna de fecha, buscar por nombre
+        if not fecha_col:
+            for col in columnas:
+                if 'Fecha' in col and 'inicio' in col:
+                    fecha_col = col
+                    break
+        
         if not fecha_col or not agente_col:
-            st.error("No se encontraron las columnas necesarias: 'Fecha y hora inicio' y 'Agente'")
+            st.error("No se encontraron las columnas necesarias: 'Fecha' y 'Agente'")
             return None
         
         progress_bar.progress(10)
@@ -530,9 +508,8 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
             st.error("No se pudieron procesar fechas válidas. Verifica el formato de fecha.")
             return None
         
-        progress_bar.progress(30)
-        
-        # 3. Extraer hora y rango
+        # Extraer fecha y hora
+        df_llamadas['Fecha_Solo'] = df_llamadas['Fecha_Procesada'].dt.date
         df_llamadas['Hora'] = df_llamadas['Fecha_Procesada'].dt.hour
         df_llamadas['Rango_Hora'] = df_llamadas['Hora'].apply(obtener_rango_hora)
         df_llamadas = df_llamadas.dropna(subset=['Rango_Hora'])
@@ -541,16 +518,16 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
             st.error("No hay registros en el rango de 9:00 a 18:00")
             return None
         
-        progress_bar.progress(40)
+        progress_bar.progress(30)
         
-        # 4. Convertir agentes
+        # 3. Convertir agentes
         df_llamadas['Agente_Nombre'] = df_llamadas[agente_col].apply(convertir_agente)
         df_llamadas = df_llamadas.dropna(subset=['Agente_Nombre'])
         df_llamadas['Agente_Nombre'] = df_llamadas['Agente_Nombre'].astype(str)
         
         progress_bar.progress(50)
         
-        # 5. Clasificar contactos y ventas
+        # 4. Clasificar contactos y ventas
         if disposition_col:
             df_llamadas['Es_Contacto'] = df_llamadas[disposition_col].apply(es_contacto)
             df_llamadas['Es_Venta'] = df_llamadas[disposition_col].apply(es_venta)
@@ -560,13 +537,16 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
         
         progress_bar.progress(60)
         
-        # 6. Agrupar datos
-        agrupado = df_llamadas.groupby(['Agente_Nombre', 'Rango_Hora']).agg({
+        # 5. Obtener lista de fechas disponibles
+        fechas_disponibles = sorted(df_llamadas['Fecha_Solo'].unique())
+        
+        # 6. Agrupar por fecha, agente y rango de hora
+        agrupado = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Rango_Hora']).agg({
             'Es_Contacto': ['count', 'sum'],
             'Es_Venta': 'sum'
         }).reset_index()
         
-        agrupado.columns = ['AGENTE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
+        agrupado.columns = ['FECHA', 'AGENTE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
         agrupado['AGENTE'] = agrupado['AGENTE'].astype(str)
         
         progress_bar.progress(70)
@@ -578,46 +558,50 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
         agentes_finales = [a for a in AGENTES_ORDER if a in agentes_disponibles]
         agentes_finales.extend([a for a in agentes_disponibles if a not in agentes_finales])
         
-        # 8. Crear reporte completo
+        # 8. Crear reporte completo con fechas
         reporte_list = []
         
-        for agente in agentes_finales:
-            for rango in RANGOS_HORA:
-                dato = agrupado[(agrupado['AGENTE'] == agente) & (agrupado['Rango_Hora'] == rango)]
-                
-                if len(dato) > 0:
-                    row = dato.iloc[0].copy()
-                else:
-                    row = pd.Series({
-                        'AGENTE': agente,
-                        'Rango_Hora': rango,
-                        'Registros': 0,
-                        'Contacto': 0,
-                        'Ventas': 0
-                    })
-                
-                row['Llamadas'] = row['Registros']
-                row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
-                row['Total conexión'] = 0.0
-                row['VPH'] = 0.0
-                
-                reporte_list.append(row)
+        for fecha in fechas_disponibles:
+            for agente in agentes_finales:
+                for rango in RANGOS_HORA:
+                    dato = agrupado[
+                        (agrupado['FECHA'] == fecha) & 
+                        (agrupado['AGENTE'] == agente) & 
+                        (agrupado['Rango_Hora'] == rango)
+                    ]
+                    
+                    if len(dato) > 0:
+                        row = dato.iloc[0].copy()
+                    else:
+                        row = pd.Series({
+                            'FECHA': fecha,
+                            'AGENTE': agente,
+                            'Rango_Hora': rango,
+                            'Registros': 0,
+                            'Contacto': 0,
+                            'Ventas': 0
+                        })
+                    
+                    row['Llamadas'] = row['Registros']
+                    row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
+                    row['Total conexión'] = 0.0
+                    row['VPH'] = 0.0
+                    
+                    reporte_list.append(row)
         
         reporte = pd.DataFrame(reporte_list)
+        reporte['FECHA'] = pd.to_datetime(reporte['FECHA']).dt.date
         reporte['AGENTE'] = reporte['AGENTE'].astype(str)
         reporte['Rango_Hora'] = reporte['Rango_Hora'].astype(str)
         
         progress_bar.progress(80)
         
-        # 9. Procesar tiempos de conexión (SOLO filas TOTAL)
+        # 9. Procesar tiempos de conexión (si existe)
         if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
-                st.info("⏱️ Procesando archivo de tiempos (usando solo filas con Estatus = TOTAL)...")
-                
                 tiempos_dict = procesar_archivo_tiempos(df_tiempos)
                 
                 if tiempos_dict:
-                    # Actualizar reporte con las horas (ya convertidas a horas)
                     for idx, row in reporte.iterrows():
                         key = f"{row['AGENTE']}|{row['Rango_Hora']}"
                         horas = tiempos_dict.get(key, 0.0)
@@ -625,20 +609,8 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
                         reporte.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0.0
                     
                     st.success(f"✅ Tiempos procesados: {len(tiempos_dict)} combinaciones agente-hora")
-                    
-                    # Mostrar algunos ejemplos
-                    with st.expander("🔍 Ver ejemplos de tiempos procesados"):
-                        ejemplos = list(tiempos_dict.items())[:10]
-                        for key, valor in ejemplos:
-                            st.write(f"  {key} → {valor:.4f} horas ({valor*60:.2f} minutos)")
-                else:
-                    st.warning("No se encontraron datos de tiempo en el archivo de tiempos")
-                    
             except Exception as e:
                 st.warning(f"Error al procesar tiempos: {e}. Continuando sin tiempos.")
-                import traceback
-                with st.expander("Ver detalles del error de tiempos"):
-                    st.code(traceback.format_exc())
         
         progress_bar.progress(90)
         
@@ -648,7 +620,7 @@ def procesar_datos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
         reporte['Total conexión'] = reporte['Total conexión'].round(2)
         
         # 11. Reordenar columnas
-        columnas_finales = ['AGENTE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
+        columnas_finales = ['FECHA', 'AGENTE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
         reporte = reporte[columnas_finales]
         
         progress_bar.progress(100)
@@ -713,8 +685,7 @@ with col1:
 with col2:
     st.subheader("⚙️ Configuración")
     
-    incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True, 
-                                   help="Incluir horas de conexión en el reporte")
+    incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
@@ -731,45 +702,27 @@ if procesar and archivo_llamadas:
                 df_tiempos = leer_archivo(archivo_tiempos)
                 if df_tiempos is not None:
                     st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
-                    
-                    # Mostrar información del archivo de tiempos
-                    with st.expander("🔍 Ver estructura del archivo de tiempos"):
-                        st.write("📋 Columnas disponibles:")
-                        st.code(", ".join(df_tiempos.columns.tolist()))
-                        
-                        st.write("📊 Muestra de los primeros 5 registros:")
-                        st.dataframe(df_tiempos.head(), use_container_width=True)
-                        
-                        # Mostrar filas con TOTAL
-                        estatus_col = None
-                        for col in df_tiempos.columns:
-                            if 'Estatus' in str(col) or 'estatus' in str(col).lower():
-                                estatus_col = col
-                                break
-                        
-                        if estatus_col:
-                            df_tiempos['Estatus_Str'] = df_tiempos[estatus_col].astype(str).str.upper().str.strip()
-                            df_total = df_tiempos[df_tiempos['Estatus_Str'] == 'TOTAL']
-                            st.write(f"📊 Filas con Estatus = 'TOTAL': {len(df_total)}")
-                            if len(df_total) > 0:
-                                st.dataframe(df_total.head(), use_container_width=True)
             
-            # Procesar datos
-            reporte = procesar_datos(df_llamadas, df_tiempos, incluir_tiempos)
+            # Procesar datos con fechas
+            reporte = procesar_datos_por_fecha(df_llamadas, df_tiempos, incluir_tiempos)
             
             if reporte is not None and len(reporte) > 0:
                 st.balloons()
                 
-                # Mostrar estadísticas
+                # Mostrar estadísticas generales
                 st.subheader("📈 Estadísticas del Reporte")
                 
-                col1, col2, col3, col4, col5 = st.columns(5)
+                # Obtener fechas disponibles
+                fechas_disponibles = sorted(reporte['FECHA'].unique())
+                total_dias = len(fechas_disponibles)
+                
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
                 with col1:
                     st.markdown(f"""
                         <div class="stat-card">
-                            <div class="stat-number">{len(reporte)}</div>
-                            <div class="stat-label">Total Filas</div>
+                            <div class="stat-number">{total_dias}</div>
+                            <div class="stat-label">Días</div>
                         </div>
                     """, unsafe_allow_html=True)
                 
@@ -809,64 +762,117 @@ if procesar and archivo_llamadas:
                         </div>
                     """, unsafe_allow_html=True)
                 
-                # Mostrar tabla
-                st.subheader("📊 Reporte de Agentes")
+                with col6:
+                    promedio_diario = total_registros / total_dias if total_dias > 0 else 0
+                    st.markdown(f"""
+                        <div class="stat-card">
+                            <div class="stat-number">{promedio_diario:.1f}</div>
+                            <div class="stat-label">Promedio Diario</div>
+                        </div>
+                    """, unsafe_allow_html=True)
                 
-                agentes_unicos = reporte['AGENTE'].unique().tolist()
-                agentes_unicos = [str(a) for a in agentes_unicos if a and str(a) != 'nan' and str(a) != 'None']
-                agentes_unicos = sorted(agentes_unicos)
+                # Mostrar tabla con filtros
+                st.subheader("📊 Reporte por Fecha y Agente")
                 
-                if agentes_unicos:
-                    agentes = ['Todos'] + agentes_unicos
-                    filtro_agente = st.selectbox("Filtrar por agente:", agentes)
+                # Filtros
+                col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+                
+                with col_filtro1:
+                    # Filtro de fecha
+                    fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
+                    filtro_fecha = st.selectbox("📅 Filtrar por fecha:", fechas_opciones)
+                
+                with col_filtro2:
+                    # Filtro de agente
+                    agentes_unicos = [str(a) for a in reporte['AGENTE'].unique() if a and str(a) != 'nan' and str(a) != 'None']
+                    agentes_unicos = sorted(agentes_unicos)
+                    agentes_opciones = ['Todos'] + agentes_unicos
+                    filtro_agente = st.selectbox("👤 Filtrar por agente:", agentes_opciones)
+                
+                with col_filtro3:
+                    # Resumen por fecha
+                    mostrar_resumen = st.checkbox("📊 Mostrar resumen por fecha", value=True)
+                
+                # Aplicar filtros
+                reporte_filtrado = reporte.copy()
+                
+                if filtro_fecha != 'Todas':
+                    fecha_filtro = datetime.strptime(filtro_fecha, '%Y-%m-%d').date()
+                    reporte_filtrado = reporte_filtrado[reporte_filtrado['FECHA'] == fecha_filtro]
+                
+                if filtro_agente != 'Todos':
+                    reporte_filtrado = reporte_filtrado[reporte_filtrado['AGENTE'] == filtro_agente]
+                
+                # Mostrar resumen por fecha
+                if mostrar_resumen:
+                    st.subheader("📊 Resumen por Fecha")
                     
-                    if filtro_agente != 'Todos':
-                        reporte_filtrado = reporte[reporte['AGENTE'] == filtro_agente]
-                    else:
-                        reporte_filtrado = reporte
+                    resumen_fecha = reporte_filtrado.groupby('FECHA').agg({
+                        'Registros': 'sum',
+                        'Contacto': 'sum',
+                        'Ventas': 'sum'
+                    }).reset_index()
+                    
+                    resumen_fecha['Conversión'] = (resumen_fecha['Ventas'] / resumen_fecha['Contacto'] * 100).round(2)
+                    resumen_fecha['FECHA'] = resumen_fecha['FECHA'].astype(str)
                     
                     st.dataframe(
-                        reporte_filtrado,
+                        resumen_fecha,
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "AGENTE": st.column_config.TextColumn("Agente"),
-                            "Rango_Hora": st.column_config.TextColumn("Rango Hora"),
-                            "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
+                            "FECHA": st.column_config.TextColumn("Fecha"),
                             "Registros": st.column_config.NumberColumn("Registros"),
-                            "Llamadas": st.column_config.NumberColumn("Llamadas"),
-                            "Contacto": st.column_config.NumberColumn("Contacto"),
+                            "Contacto": st.column_config.NumberColumn("Contactos"),
                             "Ventas": st.column_config.NumberColumn("Ventas"),
                             "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
-                            "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
                         }
                     )
+                
+                # Mostrar detalle
+                st.subheader("📋 Detalle por Agente y Hora")
+                
+                st.dataframe(
+                    reporte_filtrado,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "FECHA": st.column_config.TextColumn("Fecha"),
+                        "AGENTE": st.column_config.TextColumn("Agente"),
+                        "Rango_Hora": st.column_config.TextColumn("Rango Hora"),
+                        "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
+                        "Registros": st.column_config.NumberColumn("Registros"),
+                        "Llamadas": st.column_config.NumberColumn("Llamadas"),
+                        "Contacto": st.column_config.NumberColumn("Contacto"),
+                        "Ventas": st.column_config.NumberColumn("Ventas"),
+                        "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
+                        "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
+                    }
+                )
+                
+                # Descargar Excel
+                st.subheader("📥 Descargar Reporte")
+                
+                output = guardar_excel(reporte)
+                
+                if output is not None:
+                    try:
+                        import openpyxl
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        file_ext = "xlsx"
+                    except:
+                        mime_type = "text/csv"
+                        file_ext = "csv"
                     
-                    # Descargar Excel
-                    st.subheader("📥 Descargar Reporte")
-                    
-                    output = guardar_excel(reporte)
-                    
-                    if output is not None:
-                        try:
-                            import openpyxl
-                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            file_ext = "xlsx"
-                        except:
-                            mime_type = "text/csv"
-                            file_ext = "csv"
-                        
-                        st.download_button(
-                            label=f"⬇️ Descargar Reporte (.{file_ext})",
-                            data=output,
-                            file_name=f"reporte_agentes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
-                            mime=mime_type,
-                            use_container_width=True
-                        )
-                    else:
-                        st.error("No se pudo generar el archivo de descarga")
+                    st.download_button(
+                        label=f"⬇️ Descargar Reporte (.{file_ext})",
+                        data=output,
+                        file_name=f"reporte_agentes_por_fecha_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
+                        mime=mime_type,
+                        use_container_width=True
+                    )
                 else:
-                    st.warning("No se encontraron agentes en los datos procesados.")
+                    st.error("No se pudo generar el archivo de descarga")
             else:
                 st.warning("No se generaron datos. Verifica que el archivo tenga información válida.")
                 
@@ -885,5 +891,6 @@ st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
         <p>📊 Procesador de Llamadas - Desarrollado con Streamlit</p>
         <p>Soporta archivos Excel (.xlsx, .xls) y CSV</p>
+        <p>✨ Ahora con agrupación por fecha</p>
     </div>
 """, unsafe_allow_html=True)
