@@ -664,67 +664,62 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
 def guardar_excel_completo(reporte_detalle, reporte_resumen):
     """
     Guarda el reporte detallado y el resumen en un archivo Excel con dos hojas.
-    Usa el motor de pandas que esté disponible.
+    SOLO GENERA EXCEL - NUNCA CSV
     """
     output = io.BytesIO()
     
-    try:
-        # Intentar primero con el motor que tenga pandas por defecto
-        # pandas usa openpyxl o xlsxwriter según disponibilidad
-        with pd.ExcelWriter(output, engine=None) as writer:
-            # Hoja 1: Detalle por agente
-            reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-            
-            # Hoja 2: Resumen consolidado
-            if reporte_resumen is not None and len(reporte_resumen) > 0:
-                reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-        
-        output.seek(0)
-        st.success("✅ Archivo Excel generado correctamente con dos hojas")
-        return output
-        
-    except Exception as e1:
-        # Si falla con engine=None, intentar con openpyxl
+    # Intentar con diferentes motores
+    motores = ['openpyxl', 'xlsxwriter', None]
+    ultimo_error = None
+    
+    for motor in motores:
         try:
-            st.warning("⚠️ Intentando con motor openpyxl...")
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            motor_nombre = motor if motor else 'default'
+            st.info(f"🔄 Intentando generar Excel con motor: {motor_nombre}")
+            
+            with pd.ExcelWriter(output, engine=motor) as writer:
+                # Hoja 1: Detalle por agente
                 reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+                
+                # Hoja 2: Resumen consolidado
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+                
+                # Ajustar ancho de columnas (simple)
+                for sheet_name in writer.sheets:
+                    worksheet = writer.sheets[sheet_name]
+                    for idx, col in enumerate(reporte_detalle.columns):
+                        try:
+                            max_length = len(str(col)) + 2
+                            for row in range(min(len(reporte_detalle) + 1, 100)):
+                                try:
+                                    cell_value = reporte_detalle.iloc[row, idx] if row < len(reporte_detalle) else None
+                                    if cell_value is not None:
+                                        max_length = max(max_length, len(str(cell_value)) + 2)
+                                except:
+                                    pass
+                            if hasattr(worksheet, 'column_dimensions'):
+                                from openpyxl.utils import get_column_letter
+                                worksheet.column_dimensions[get_column_letter(idx+1)].width = min(max_length, 50)
+                        except:
+                            pass
             
             output.seek(0)
-            st.success("✅ Archivo Excel generado correctamente con dos hojas (openpyxl)")
+            st.success(f"✅ Archivo Excel generado correctamente con dos hojas (motor: {motor_nombre})")
             return output
             
-        except Exception as e2:
-            # Si falla con openpyxl, intentar con xlsxwriter
-            try:
-                st.warning("⚠️ Intentando con motor xlsxwriter...")
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                    if reporte_resumen is not None and len(reporte_resumen) > 0:
-                        reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                output.seek(0)
-                st.success("✅ Archivo Excel generado correctamente con dos hojas (xlsxwriter)")
-                return output
-                
-            except Exception as e3:
-                # Si todo falla, guardar como CSV
-                st.warning(f"⚠️ No se pudo generar Excel. Se descargará como CSV.")
-                csv_output = io.BytesIO()
-                
-                # Guardar detalle como CSV
-                reporte_detalle.to_csv(csv_output, index=False)
-                
-                # Agregar el resumen al final del CSV
-                if reporte_resumen is not None and len(reporte_resumen) > 0:
-                    csv_output.write(b"\n\n=== RESUMEN CONSOLIDADO ===\n\n")
-                    resumen_csv = reporte_resumen.to_csv(index=False).encode('utf-8')
-                    csv_output.write(resumen_csv)
-                
-                csv_output.seek(0)
-                return csv_output
+        except Exception as e:
+            ultimo_error = e
+            st.warning(f"⚠️ Falló con motor {motor_nombre}: {str(e)[:100]}")
+            output = io.BytesIO()  # Resetear el buffer
+            continue
+    
+    # Si llegamos aquí, todos los motores fallaron
+    st.error(f"❌ No se pudo generar el archivo Excel con ningún motor. Error: {str(ultimo_error)}")
+    st.error("📌 Asegúrate de tener instalado openpyxl o xlsxwriter:")
+    st.code("pip install openpyxl xlsxwriter")
+    
+    return None
 
 # ============================================
 # INTERFAZ PRINCIPAL
@@ -924,32 +919,22 @@ if procesar and archivo_llamadas:
                 output = guardar_excel_completo(reporte_detalle, reporte_resumen)
                 
                 if output is not None:
-                    # Detectar el tipo de archivo
-                    output.seek(0)
-                    header = output.read(4)
-                    output.seek(0)
-                    
-                    # Si es un archivo Excel (comienza con PK)
-                    if header == b'PK\x03\x04':
-                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        file_ext = "xlsx"
-                        descripcion = "Excel con dos hojas (Detalle y Resumen)"
-                        st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
-                    else:
-                        mime_type = "text/csv"
-                        file_ext = "csv"
-                        descripcion = "CSV (una sola hoja, con resumen al final)"
-                        st.info("📄 El archivo CSV contiene los datos del detalle y al final el resumen consolidado")
+                    # Siempre es Excel porque la función solo retorna Excel
+                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    file_ext = "xlsx"
                     
                     st.download_button(
-                        label=f"⬇️ Descargar Reporte {descripcion}",
+                        label=f"⬇️ Descargar Reporte Excel (dos hojas)",
                         data=output,
                         file_name=f"reporte_completo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
                         mime=mime_type,
                         use_container_width=True
                     )
+                    
+                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
                 else:
-                    st.error("No se pudo generar el archivo de descarga")
+                    st.error("❌ No se pudo generar el archivo Excel. Por favor, instala openpyxl o xlsxwriter:")
+                    st.code("pip install openpyxl xlsxwriter")
             else:
                 st.warning("No se generaron datos. Verifica que el archivo tenga información válida.")
                 
