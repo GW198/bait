@@ -748,7 +748,7 @@ with col2:
     
     incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
     
-    procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
+    procesar = st.button("Procesar Datos", type="primary", use_container_width=True)
 
 # ============================================
 # PROCESAMIENTO DE DATOS
