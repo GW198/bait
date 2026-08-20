@@ -71,7 +71,7 @@ MAPEO_AGENTES = {
     'RPYANEZ': 'Roberto Patricio Yañez Bajonero',
     'ADM-LPRECIADO': 'Leonel Martinez Preciado',
     'BMG_VVPS':'Vanessa Valentina Pinto Salinas',
-    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril',
+    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril'
 }
 
 AGENTES_ORDER = [
@@ -207,10 +207,14 @@ def leer_archivo(archivo):
             except:
                 df = pd.read_csv(archivo, encoding='latin-1', low_memory=False, dtype=str)
         else:
+            # Intentar con diferentes motores
             try:
                 df = pd.read_excel(archivo, engine='openpyxl', dtype=str)
             except:
-                df = pd.read_excel(archivo, engine='xlrd', dtype=str)
+                try:
+                    df = pd.read_excel(archivo, engine='xlrd', dtype=str)
+                except:
+                    df = pd.read_excel(archivo, dtype=str)
         
         return df
     except Exception as e:
@@ -660,122 +664,67 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
 def guardar_excel_completo(reporte_detalle, reporte_resumen):
     """
     Guarda el reporte detallado y el resumen en un archivo Excel con dos hojas.
-    SIEMPRE intenta generar un archivo .xlsx con múltiples hojas.
+    Usa el motor de pandas que esté disponible.
     """
     output = io.BytesIO()
     
     try:
-        # Verificar que openpyxl está disponible
-        try:
-            import openpyxl
-            from openpyxl.utils import get_column_letter
-            tiene_openpyxl = True
-        except ImportError:
-            tiene_openpyxl = False
-            st.warning("⚠️ openpyxl no está instalado. Intentando instalarlo...")
-            try:
-                import subprocess
-                import sys
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
-                import openpyxl
-                from openpyxl.utils import get_column_letter
-                tiene_openpyxl = True
-                st.success("✅ openpyxl instalado correctamente")
-            except Exception as inst_error:
-                st.error(f"❌ No se pudo instalar openpyxl: {inst_error}")
-                tiene_openpyxl = False
+        # Intentar primero con el motor que tenga pandas por defecto
+        # pandas usa openpyxl o xlsxwriter según disponibilidad
+        with pd.ExcelWriter(output, engine=None) as writer:
+            # Hoja 1: Detalle por agente
+            reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+            
+            # Hoja 2: Resumen consolidado
+            if reporte_resumen is not None and len(reporte_resumen) > 0:
+                reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
         
-        if tiene_openpyxl:
-            # Crear el Excel con openpyxl (SIEMPRE .xlsx con múltiples hojas)
+        output.seek(0)
+        st.success("✅ Archivo Excel generado correctamente con dos hojas")
+        return output
+        
+    except Exception as e1:
+        # Si falla con engine=None, intentar con openpyxl
+        try:
+            st.warning("⚠️ Intentando con motor openpyxl...")
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # Hoja 1: Detalle por agente
                 reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                
-                # Hoja 2: Resumen consolidado
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                # Ajustar ancho de columnas para todas las hojas
-                for sheet_name in writer.sheets:
-                    worksheet = writer.sheets[sheet_name]
-                    # Determinar qué dataframe usar para el ancho
-                    if sheet_name == 'Detalle_Agentes':
-                        df_referencia = reporte_detalle
-                    elif sheet_name == 'Resumen_Consolidado' and reporte_resumen is not None:
-                        df_referencia = reporte_resumen
-                    else:
-                        df_referencia = reporte_detalle
-                    
-                    for idx, col in enumerate(df_referencia.columns):
-                        try:
-                            # Calcular el ancho máximo
-                            max_length = len(str(col)) + 2
-                            # Revisar valores (limitar a 1000 filas por performance)
-                            for row in range(min(len(df_referencia) + 1, 1000)):
-                                try:
-                                    cell_value = df_referencia.iloc[row, idx] if row < len(df_referencia) else None
-                                    if cell_value is not None:
-                                        max_length = max(max_length, len(str(cell_value)) + 2)
-                                except:
-                                    pass
-                            # Establecer el ancho (máximo 50)
-                            worksheet.column_dimensions[get_column_letter(idx+1)].width = min(max_length, 50)
-                        except Exception as e:
-                            continue
             
             output.seek(0)
-            st.success("✅ Archivo Excel generado correctamente con dos hojas")
+            st.success("✅ Archivo Excel generado correctamente con dos hojas (openpyxl)")
             return output
-        
-        else:
-            # Si no tenemos openpyxl, intentamos con el motor por defecto
-            st.warning("⚠️ Usando motor alternativo para guardar Excel...")
+            
+        except Exception as e2:
+            # Si falla con openpyxl, intentar con xlsxwriter
             try:
+                st.warning("⚠️ Intentando con motor xlsxwriter...")
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
                     if reporte_resumen is not None and len(reporte_resumen) > 0:
                         reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
                 
                 output.seek(0)
-                st.success("✅ Archivo Excel generado correctamente con dos hojas (usando xlsxwriter)")
+                st.success("✅ Archivo Excel generado correctamente con dos hojas (xlsxwriter)")
                 return output
-            except:
-                # Si xlsxwriter falla, intentamos con el motor por defecto de pandas
-                try:
-                    with pd.ExcelWriter(output) as writer:
-                        reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                        if reporte_resumen is not None and len(reporte_resumen) > 0:
-                            reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                    
-                    output.seek(0)
-                    st.success("✅ Archivo Excel generado correctamente con dos hojas")
-                    return output
-                except:
-                    raise Exception("No se pudo generar el archivo Excel")
-            
-    except Exception as e:
-        st.error(f"❌ Error al generar el Excel: {str(e)}")
-        
-        # ÚLTIMO RECURSO: CSV (pero mostramos un mensaje claro)
-        try:
-            st.warning("⚠️ No se pudo generar el archivo Excel. Se descargará como CSV (una sola hoja).")
-            csv_output = io.BytesIO()
-            
-            # Guardar detalle como CSV
-            reporte_detalle.to_csv(csv_output, index=False)
-            
-            # Agregar el resumen al final del CSV
-            if reporte_resumen is not None and len(reporte_resumen) > 0:
-                csv_output.write(b"\n\n=== RESUMEN CONSOLIDADO ===\n\n")
-                resumen_csv = reporte_resumen.to_csv(index=False).encode('utf-8')
-                csv_output.write(resumen_csv)
-            
-            csv_output.seek(0)
-            return csv_output
-            
-        except Exception as e3:
-            st.error(f"❌ Error al guardar: {str(e3)}")
-            return None
+                
+            except Exception as e3:
+                # Si todo falla, guardar como CSV
+                st.warning(f"⚠️ No se pudo generar Excel. Se descargará como CSV.")
+                csv_output = io.BytesIO()
+                
+                # Guardar detalle como CSV
+                reporte_detalle.to_csv(csv_output, index=False)
+                
+                # Agregar el resumen al final del CSV
+                if reporte_resumen is not None and len(reporte_resumen) > 0:
+                    csv_output.write(b"\n\n=== RESUMEN CONSOLIDADO ===\n\n")
+                    resumen_csv = reporte_resumen.to_csv(index=False).encode('utf-8')
+                    csv_output.write(resumen_csv)
+                
+                csv_output.seek(0)
+                return csv_output
 
 # ============================================
 # INTERFAZ PRINCIPAL
