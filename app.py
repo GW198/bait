@@ -44,10 +44,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Título
-st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1><p>Sube tu archivo de llamadas y genera reportes automáticos</p></div>', unsafe_allow_html=True)
 
 # ============================================
-# MAPEO DE AGENTES
+# MAPEO DE AGENTES CON CAMPAÑA Y SITE
 # ============================================
 MAPEO_AGENTES = {
     'BMG_GYHV':'Greisi Yenifer Hernandez Valenzuela',
@@ -71,16 +71,58 @@ MAPEO_AGENTES = {
     'RPYANEZ': 'Roberto Patricio Yañez Bajonero',
     'ADM-LPRECIADO': 'Leonel Martinez Preciado',
     'BMG_VVPS':'Vanessa Valentina Pinto Salinas',
-    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril'
+    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril',
 }
 
+# ============================================
+# CONFIGURACIÓN DE CAMPAÑA Y SITE POR AGENTE
+# ============================================
+# Definir la campaña y site para cada agente
+AGENTE_CAMPANA_SITE = {
+    'Eduardo Reyes Abasolo': {
+        'Campaña': 'Portabilidad',
+        'SITE': 'México'
+    },
+    'Rebeca Carmona Martell': {
+        'Campaña': 'Portabilidad',
+        'SITE': 'México'
+    },
+    'Kaelan Andre Gutierrez Gonzalez': {
+        'Campaña': 'Portabilidad',
+        'SITE': 'Externo'
+    }
+}
+
+def obtener_campana(agente):
+    """Obtiene la campaña del agente"""
+    if pd.isna(agente):
+        return 'No Asignado'
+    agente_str = str(agente).strip()
+    info = AGENTE_CAMPANA_SITE.get(agente_str, {})
+    return info.get('Campaña', 'No Asignado')
+
+def obtener_site(agente):
+    """Obtiene el SITE del agente"""
+    if pd.isna(agente):
+        return 'No Asignado'
+    agente_str = str(agente).strip()
+    info = AGENTE_CAMPANA_SITE.get(agente_str, {})
+    return info.get('SITE', 'No Asignado')
+
+# Orden de agentes
 AGENTES_ORDER = [
     'Eduardo Reyes Abasolo',
     'Brebeca Carmona Martell',
     'Kaelan Andre Gutierrez Gonzalez',
     'Leonel Preciado Martínez',
     'Ana Karen Padilla Martínez',
-    'Emmanuel Ruiz Vera'
+    'Emmanuel Ruiz Vera',
+    'Fergie Zoe Alcantara',
+    'Jorge Cardenas',
+    'Maria Gonzalez',
+    'Ana Gramonte',
+    'Roberto Perez',
+    'Laura Sanchez'
 ]
 
 RANGOS_HORA = [
@@ -207,7 +249,6 @@ def leer_archivo(archivo):
             except:
                 df = pd.read_csv(archivo, encoding='latin-1', low_memory=False, dtype=str)
         else:
-            # Intentar con diferentes motores
             try:
                 df = pd.read_excel(archivo, engine='openpyxl', dtype=str)
             except:
@@ -545,9 +586,13 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         df_llamadas = df_llamadas.dropna(subset=['Agente_Nombre'])
         df_llamadas['Agente_Nombre'] = df_llamadas['Agente_Nombre'].astype(str)
         
+        # 4. Agregar columnas de Campaña y SITE
+        df_llamadas['Campaña'] = df_llamadas['Agente_Nombre'].apply(obtener_campana)
+        df_llamadas['SITE'] = df_llamadas['Agente_Nombre'].apply(obtener_site)
+        
         progress_bar.progress(50)
         
-        # 4. Clasificar contactos y ventas
+        # 5. Clasificar contactos y ventas
         if disposition_col:
             df_llamadas['Es_Contacto'] = df_llamadas[disposition_col].apply(es_contacto)
             df_llamadas['Es_Venta'] = df_llamadas[disposition_col].apply(es_venta)
@@ -557,28 +602,28 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         progress_bar.progress(60)
         
-        # 5. Obtener lista de fechas disponibles
+        # 6. Obtener lista de fechas disponibles
         fechas_disponibles = sorted(df_llamadas['Fecha_Solo'].unique())
         
-        # 6. Agrupar por fecha, agente y rango de hora
-        agrupado = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Rango_Hora']).agg({
+        # 7. Agrupar por fecha, agente y rango de hora
+        agrupado = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Campaña', 'SITE', 'Rango_Hora']).agg({
             'Es_Contacto': ['count', 'sum'],
             'Es_Venta': 'sum'
         }).reset_index()
         
-        agrupado.columns = ['FECHA', 'AGENTE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
+        agrupado.columns = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
         agrupado['AGENTE'] = agrupado['AGENTE'].astype(str)
         
         progress_bar.progress(70)
         
-        # 7. Obtener lista de agentes que realmente tienen actividad en cada fecha
+        # 8. Obtener lista de agentes que realmente tienen actividad en cada fecha
         agentes_por_fecha = {}
         for fecha in fechas_disponibles:
             df_fecha = agrupado[agrupado['FECHA'] == fecha]
             agentes_activos = df_fecha[df_fecha['Registros'] > 0]['AGENTE'].unique().tolist()
             agentes_por_fecha[fecha] = agentes_activos
         
-        # 8. Crear reporte detallado SOLO con agentes que tuvieron actividad
+        # 9. Crear reporte detallado SOLO con agentes que tuvieron actividad
         reporte_list = []
         
         for fecha in fechas_disponibles:
@@ -588,6 +633,10 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                 continue
             
             for agente in agentes_activos:
+                # Obtener campaña y site del agente
+                campana = obtener_campana(agente)
+                site = obtener_site(agente)
+                
                 for rango in RANGOS_HORA:
                     dato = agrupado[
                         (agrupado['FECHA'] == fecha) & 
@@ -601,6 +650,8 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                         row = pd.Series({
                             'FECHA': fecha,
                             'AGENTE': agente,
+                            'CAMPAÑA': campana,
+                            'SITE': site,
                             'Rango_Hora': rango,
                             'Registros': 0,
                             'Contacto': 0,
@@ -622,11 +673,13 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         reporte_detalle['FECHA'] = pd.to_datetime(reporte_detalle['FECHA']).dt.date
         reporte_detalle['AGENTE'] = reporte_detalle['AGENTE'].astype(str)
+        reporte_detalle['CAMPAÑA'] = reporte_detalle['CAMPAÑA'].astype(str)
+        reporte_detalle['SITE'] = reporte_detalle['SITE'].astype(str)
         reporte_detalle['Rango_Hora'] = reporte_detalle['Rango_Hora'].astype(str)
         
         progress_bar.progress(80)
         
-        # 9. Procesar tiempos de conexión
+        # 10. Procesar tiempos de conexión
         if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
                 tiempos_dict = procesar_archivo_tiempos(df_tiempos)
@@ -645,16 +698,16 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         progress_bar.progress(90)
         
-        # 10. Redondear valores
+        # 11. Redondear valores
         reporte_detalle['Conversión'] = reporte_detalle['Conversión'].round(2)
         reporte_detalle['VPH'] = reporte_detalle['VPH'].round(2)
         reporte_detalle['Total conexión'] = reporte_detalle['Total conexión'].round(2)
         
-        # 11. Reordenar columnas del detalle
-        columnas_detalle = ['FECHA', 'AGENTE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
+        # 12. Reordenar columnas del detalle
+        columnas_detalle = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
         reporte_detalle = reporte_detalle[columnas_detalle]
         
-        # 12. Generar resumen consolidado
+        # 13. Generar resumen consolidado
         reporte_resumen = generar_resumen_consolidado(reporte_detalle)
         
         progress_bar.progress(100)
@@ -664,7 +717,6 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
 def guardar_excel_simple(reporte_detalle, reporte_resumen):
     """
     Guarda el reporte en formato Excel usando el motor disponible.
-    Si no hay motores disponibles, guarda como CSV pero con extensión .xlsx
     """
     output = io.BytesIO()
     
@@ -693,34 +745,10 @@ def guardar_excel_simple(reporte_detalle, reporte_resumen):
             return output
             
         except Exception as e2:
-            # Si todo falla, guardar como XLSX usando un método alternativo
-            try:
-                import xlsxwriter
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                    if reporte_resumen is not None and len(reporte_resumen) > 0:
-                        reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                output.seek(0)
-                st.success("✅ Archivo Excel generado correctamente")
-                return output
-                
-            except:
-                # Último recurso: crear un Excel simple con pandas sin motores adicionales
-                st.warning("⚠️ Usando método alternativo para generar el Excel...")
-                
-                # Crear un Excel usando solo pandas (sin motores externos)
-                output = io.BytesIO()
-                
-                # Escribir el detalle
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                    if reporte_resumen is not None and len(reporte_resumen) > 0:
-                        reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                output.seek(0)
-                return output
+            # Si todo falla, mostrar error
+            st.error("❌ No se pudo generar el archivo Excel. Por favor, instala openpyxl o xlsxwriter")
+            st.code("pip install openpyxl xlsxwriter")
+            return None
 
 # ============================================
 # INTERFAZ PRINCIPAL
@@ -748,7 +776,7 @@ with col2:
     
     incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
     
-    procesar = st.button("Procesar Datos", type="primary", use_container_width=True)
+    procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
 # ============================================
 # PROCESAMIENTO DE DATOS
@@ -781,6 +809,10 @@ if procesar and archivo_llamadas:
                 fechas_disponibles = sorted(reporte_detalle['FECHA'].unique())
                 total_dias = len(fechas_disponibles)
                 agentes_unicos = reporte_detalle['AGENTE'].nunique()
+                
+                # Estadísticas por campaña
+                campanas = reporte_detalle['CAMPAÑA'].unique()
+                sites = reporte_detalle['SITE'].unique()
                 
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
@@ -837,6 +869,34 @@ if procesar and archivo_llamadas:
                     """, unsafe_allow_html=True)
                 
                 # ============================================
+                # RESUMEN POR CAMPAÑA Y SITE
+                # ============================================
+                st.subheader("📊 Resumen por Campaña y SITE")
+                
+                resumen_campana = reporte_detalle.groupby(['CAMPAÑA', 'SITE']).agg({
+                    'Registros': 'sum',
+                    'Contacto': 'sum',
+                    'Ventas': 'sum'
+                }).reset_index()
+                
+                resumen_campana['Conversión'] = (resumen_campana['Ventas'] / resumen_campana['Contacto'] * 100).round(2)
+                resumen_campana['Conversión'] = resumen_campana['Conversión'].fillna(0)
+                
+                st.dataframe(
+                    resumen_campana,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "CAMPAÑA": st.column_config.TextColumn("Campaña"),
+                        "SITE": st.column_config.TextColumn("SITE"),
+                        "Registros": st.column_config.NumberColumn("Registros"),
+                        "Contacto": st.column_config.NumberColumn("Contactos"),
+                        "Ventas": st.column_config.NumberColumn("Ventas"),
+                        "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
+                    }
+                )
+                
+                # ============================================
                 # RESUMEN CONSOLIDADO
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
@@ -875,7 +935,7 @@ if procesar and archivo_llamadas:
                 # ============================================
                 st.subheader("📋 Detalle por Agente")
                 
-                col_filtro1, col_filtro2 = st.columns(2)
+                col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
                 
                 with col_filtro1:
                     fechas_opciones_detalle = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
@@ -884,6 +944,10 @@ if procesar and archivo_llamadas:
                 with col_filtro2:
                     agentes_opciones = ['Todos'] + sorted([str(a) for a in reporte_detalle['AGENTE'].unique() if a and str(a) != 'nan'])
                     filtro_agente = st.selectbox("👤 Filtrar por agente:", agentes_opciones)
+                
+                with col_filtro3:
+                    campanas_opciones = ['Todas'] + sorted([str(c) for c in reporte_detalle['CAMPAÑA'].unique() if c and str(c) != 'nan'])
+                    filtro_campana = st.selectbox("📢 Filtrar por campaña:", campanas_opciones)
                 
                 detalle_filtrado = reporte_detalle.copy()
                 
@@ -894,6 +958,9 @@ if procesar and archivo_llamadas:
                 if filtro_agente != 'Todos':
                     detalle_filtrado = detalle_filtrado[detalle_filtrado['AGENTE'] == filtro_agente]
                 
+                if filtro_campana != 'Todas':
+                    detalle_filtrado = detalle_filtrado[detalle_filtrado['CAMPAÑA'] == filtro_campana]
+                
                 st.dataframe(
                     detalle_filtrado,
                     use_container_width=True,
@@ -901,6 +968,8 @@ if procesar and archivo_llamadas:
                     column_config={
                         "FECHA": st.column_config.TextColumn("Fecha"),
                         "AGENTE": st.column_config.TextColumn("Agente"),
+                        "CAMPAÑA": st.column_config.TextColumn("Campaña"),
+                        "SITE": st.column_config.TextColumn("SITE"),
                         "Rango_Hora": st.column_config.TextColumn("Hora"),
                         "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
                         "Registros": st.column_config.NumberColumn("Registros"),
@@ -929,7 +998,6 @@ if procesar and archivo_llamadas:
                         mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         file_ext = "xlsx"
                     else:
-                        # Si no es Excel, intentar como .xls
                         mime_type = "application/vnd.ms-excel"
                         file_ext = "xls"
                     
@@ -941,7 +1009,7 @@ if procesar and archivo_llamadas:
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
+                    st.info("📄 El archivo contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora (incluye Campaña y SITE)\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
                 else:
                     st.error("❌ No se pudo generar el archivo de descarga")
             else:
@@ -962,6 +1030,8 @@ elif procesar and not archivo_llamadas:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
-        
+        <p>📊 Procesador de Llamadas - Desarrollado con Streamlit</p>
+        <p>Soporta archivos Excel (.xlsx, .xls) y CSV</p>
+        <p>✨ Incluye Campaña y SITE por agente | HC = Agentes con actividad</p>
     </div>
 """, unsafe_allow_html=True)
