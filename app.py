@@ -50,7 +50,7 @@ st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1><p>Sub
 # MAPEO DE AGENTES
 # ============================================
 MAPEO_AGENTES = {
-   'BMG_GYHV':'Greisi Yenifer Hernandez Valenzuela',
+    'BMG_GYHV':'Greisi Yenifer Hernandez Valenzuela',
     'BMG_LPVH':'Lorenys Patricia Villarroel Hernandez',
     'BT-CREBECA': 'Rebeca Carmona Martell',
     'BT-ERUIZ': 'Emmanuel Ruiz Vera',
@@ -657,48 +657,69 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         return reporte_detalle, reporte_resumen
 
+# FUNCIÓN CORREGIDA PARA GUARDAR EXCEL - SIN DEPENDENCIA DE XLSXWRITER
 def guardar_excel_completo(reporte_detalle, reporte_resumen):
     """Guarda el reporte detallado y el resumen en un archivo Excel con dos hojas"""
     output = io.BytesIO()
     
     try:
-        try:
-            import openpyxl
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # Hoja 1: Detalle por agente
-                reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                
-                # Hoja 2: Resumen consolidado
-                if reporte_resumen is not None:
-                    reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                # Ajustar ancho de columnas
-                for sheet_name in writer.sheets:
-                    worksheet = writer.sheets[sheet_name]
-                    for idx, col in enumerate(reporte_detalle.columns):
-                        max_len = max(reporte_detalle[col].astype(str).str.len().max(), len(col)) + 2
+        # Intentar primero con openpyxl (que es más común)
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Hoja 1: Detalle por agente
+            reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+            
+            # Hoja 2: Resumen consolidado
+            if reporte_resumen is not None:
+                reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+            
+            # Ajustar ancho de columnas
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                for idx, col in enumerate(reporte_detalle.columns):
+                    try:
+                        # Calcular el ancho máximo
+                        max_len = len(str(col)) + 2
+                        for row in range(len(reporte_detalle) + 1):
+                            try:
+                                cell_value = worksheet.cell(row=row+1, column=idx+1).value
+                                if cell_value:
+                                    max_len = max(max_len, len(str(cell_value)) + 2)
+                            except:
+                                pass
+                        # Limitar el ancho máximo a 50
                         worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
-        except:
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                
-                if reporte_resumen is not None:
-                    reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                workbook = writer.book
-                
-                for sheet_name in writer.sheets:
-                    worksheet = writer.sheets[sheet_name]
-                    for idx, col in enumerate(reporte_detalle.columns):
-                        max_len = max(reporte_detalle[col].astype(str).str.len().max(), len(col)) + 2
-                        worksheet.set_column(idx, idx, min(max_len, 50))
+                    except:
+                        pass
         
         output.seek(0)
         return output
         
     except Exception as e:
-        st.error(f"Error al guardar el archivo Excel: {e}")
-        return None
+        # Si falla openpyxl, intentar con el motor por defecto
+        try:
+            st.warning("Usando motor alternativo para guardar Excel...")
+            with pd.ExcelWriter(output) as writer:
+                reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+                if reporte_resumen is not None:
+                    reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+            
+            output.seek(0)
+            return output
+        except Exception as e2:
+            # Si todo falla, guardar como CSV
+            st.warning("No se pudo guardar como Excel. Se descargará como CSV.")
+            try:
+                csv_output = io.BytesIO()
+                # Guardar detalle como CSV
+                reporte_detalle.to_csv(csv_output, index=False)
+                if reporte_resumen is not None:
+                    csv_output.write(b"\n\n--- RESUMEN CONSOLIDADO ---\n\n")
+                    reporte_resumen.to_csv(csv_output, index=False)
+                csv_output.seek(0)
+                return csv_output
+            except Exception as e3:
+                st.error(f"No se pudo guardar el archivo: {e3}")
+                return None
 
 # ============================================
 # INTERFAZ PRINCIPAL
@@ -898,13 +919,22 @@ if procesar and archivo_llamadas:
                 output = guardar_excel_completo(reporte_detalle, reporte_resumen)
                 
                 if output is not None:
+                    # Determinar el tipo de archivo
                     try:
-                        import openpyxl
+                        # Intentar leer el inicio del archivo para determinar si es Excel
+                        output.seek(0)
+                        header = output.read(4)
+                        output.seek(0)
+                        
+                        if header == b'PK\x03\x04':  # Es un archivo ZIP (Excel)
+                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            file_ext = "xlsx"
+                        else:
+                            mime_type = "text/csv"
+                            file_ext = "csv"
+                    except:
                         mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         file_ext = "xlsx"
-                    except:
-                        mime_type = "text/csv"
-                        file_ext = "csv"
                     
                     st.download_button(
                         label=f"⬇️ Descargar Reporte Completo (.{file_ext})",
@@ -914,7 +944,7 @@ if procesar and archivo_llamadas:
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC (agentes activos) y Hrs conexión promedio (máx 1)")
+                    st.info("📄 El archivo contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
                 else:
                     st.error("No se pudo generar el archivo de descarga")
             else:
