@@ -58,10 +58,10 @@ MAPEO_AGENTES = {
     'KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
     'LEONEL PRECIADO MARTINEZ': 'Leonel Preciado Martínez',
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
-    'EMMANUEL RUIZ VERA': 'Emmanuel Ruiz Vera',
+    'ERUIZ': 'Emmanuel Ruiz Vera',
     'EDUARDO  ABASOLO REYES': 'Eduardo Reyes Abasolo',
-    'BT-CREBECA': 'Rebeca Carmona Martell',
-    ' KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
+    'CREBECA': 'Rebeca Carmona Martell',
+    'KAELAN ANDRE GUTIERREZ GONZALEZ': 'Kaelan Andre Gutierrez Gonzalez',
     'FERGIE ZOE  ALCANTARA GARCÍA': 'Fergie Zoe Alcantara',
     'ANA KAREN PADILLA MARTINEZ': 'Ana Karen Padilla Martínez',
 }
