@@ -962,8 +962,6 @@ elif procesar and not archivo_llamadas:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
-        <p>📊 Procesador de Llamadas - Desarrollado con Streamlit</p>
-        <p>Soporta archivos Excel (.xlsx, .xls) y CSV</p>
-        <p>✨ HC = Agentes con actividad | Hrs conexión = Promedio (máx 1 hora por agente)</p>
+        
     </div>
 """, unsafe_allow_html=True)
