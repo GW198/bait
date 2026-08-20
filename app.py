@@ -432,13 +432,22 @@ def generar_resumen_consolidado(reporte_detalle):
     """
     Genera un resumen consolidado por fecha y hora con las columnas:
     HC, Hrs conexión, Registros, Llamadas, Contacto, Ventas, Conversión, VPH
+    
+    HC = Número de agentes que tuvieron actividad en esa fecha y hora
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return None
     
+    # Crear una copia del dataframe
+    df = reporte_detalle.copy()
+    
+    # Para cada combinación de FECHA y Rango_Hora, contar agentes con actividad
+    # Un agente tiene actividad si tiene Registros > 0 o Contacto > 0 o Ventas > 0
+    df['Tiene_Actividad'] = (df['Registros'] > 0) | (df['Contacto'] > 0) | (df['Ventas'] > 0)
+    
     # Agrupar por FECHA y Rango_Hora
-    resumen = reporte_detalle.groupby(['FECHA', 'Rango_Hora']).agg({
-        'AGENTE': 'nunique',  # HC = número de agentes únicos
+    resumen = df.groupby(['FECHA', 'Rango_Hora']).agg({
+        'AGENTE': lambda x: x[df.loc[x.index, 'Tiene_Actividad']].nunique(),  # HC = agentes con actividad
         'Total conexión': 'sum',  # Suma de horas de conexión
         'Registros': 'sum',
         'Llamadas': 'sum',
@@ -552,18 +561,26 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         progress_bar.progress(70)
         
-        # 7. Obtener lista de agentes
-        agentes_disponibles = agrupado['AGENTE'].unique().tolist()
-        agentes_disponibles = [a for a in agentes_disponibles if a and a != 'nan' and a != 'None']
+        # 7. Obtener lista de agentes que realmente tienen actividad en cada fecha
+        # Primero, identificamos qué agentes tienen actividad en cada fecha
+        agentes_por_fecha = {}
+        for fecha in fechas_disponibles:
+            df_fecha = agrupado[agrupado['FECHA'] == fecha]
+            agentes_activos = df_fecha[df_fecha['Registros'] > 0]['AGENTE'].unique().tolist()
+            agentes_por_fecha[fecha] = agentes_activos
         
-        agentes_finales = [a for a in AGENTES_ORDER if a in agentes_disponibles]
-        agentes_finales.extend([a for a in agentes_disponibles if a not in agentes_finales])
-        
-        # 8. Crear reporte detallado
+        # 8. Crear reporte detallado SOLO con agentes que tuvieron actividad
         reporte_list = []
         
         for fecha in fechas_disponibles:
-            for agente in agentes_finales:
+            # Obtener agentes activos para esta fecha
+            agentes_activos = agentes_por_fecha.get(fecha, [])
+            
+            # Si no hay agentes activos, saltar
+            if not agentes_activos:
+                continue
+            
+            for agente in agentes_activos:
                 for rango in RANGOS_HORA:
                     dato = agrupado[
                         (agrupado['FECHA'] == fecha) & 
@@ -591,6 +608,12 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                     reporte_list.append(row)
         
         reporte_detalle = pd.DataFrame(reporte_list)
+        
+        # Si no hay datos, retornar None
+        if len(reporte_detalle) == 0:
+            st.warning("No se encontraron datos para ningún agente")
+            return None, None
+        
         reporte_detalle['FECHA'] = pd.to_datetime(reporte_detalle['FECHA']).dt.date
         reporte_detalle['AGENTE'] = reporte_detalle['AGENTE'].astype(str)
         reporte_detalle['Rango_Hora'] = reporte_detalle['Rango_Hora'].astype(str)
@@ -646,20 +669,12 @@ def guardar_excel_completo(reporte_detalle, reporte_resumen):
                 if reporte_resumen is not None:
                     reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
                 
-                # Ajustar ancho de columnas para ambas hojas
+                # Ajustar ancho de columnas
                 for sheet_name in writer.sheets:
                     worksheet = writer.sheets[sheet_name]
-                    for idx, col in enumerate(writer.sheets[sheet_name].iter_cols(max_col=len(reporte_detalle.columns))):
-                        max_len = 0
-                        col_letter = chr(65 + idx)
-                        for cell in col:
-                            try:
-                                if len(str(cell.value)) > max_len:
-                                    max_len = len(str(cell.value))
-                            except:
-                                pass
-                        adjusted_width = min(max_len + 2, 50)
-                        worksheet.column_dimensions[col_letter].width = adjusted_width
+                    for idx, col in enumerate(reporte_detalle.columns):
+                        max_len = max(reporte_detalle[col].astype(str).str.len().max(), len(col)) + 2
+                        worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
         except:
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
@@ -797,11 +812,11 @@ if procesar and archivo_llamadas:
                     """, unsafe_allow_html=True)
                 
                 # ============================================
-                # RESUMEN CONSOLIDADO (HC por fecha y hora)
+                # RESUMEN CONSOLIDADO
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("HC = Número de agentes que trabajaron en esa hora")
+                    st.info("HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)")
                     
                     # Filtro de fecha para el resumen
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
@@ -819,7 +834,7 @@ if procesar and archivo_llamadas:
                         column_config={
                             "FECHA": st.column_config.TextColumn("Fecha"),
                             "Rango_Hora": st.column_config.TextColumn("Hora"),
-                            "HC": st.column_config.NumberColumn("HC", help="Número de agentes"),
+                            "HC": st.column_config.NumberColumn("HC", help="Número de agentes con actividad"),
                             "Hrs conexión": st.column_config.NumberColumn("Hrs Conexión", format="%.2f"),
                             "Registros": st.column_config.NumberColumn("Registros"),
                             "Llamadas": st.column_config.NumberColumn("Llamadas"),
@@ -896,7 +911,7 @@ if procesar and archivo_llamadas:
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen por fecha y hora con HC (número de agentes)")
+                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen por fecha y hora con HC (número de agentes con actividad)")
                 else:
                     st.error("No se pudo generar el archivo de descarga")
             else:
@@ -919,6 +934,6 @@ st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
         <p>📊 Procesador de Llamadas - Desarrollado con Streamlit</p>
         <p>Soporta archivos Excel (.xlsx, .xls) y CSV</p>
-        <p>✨ Incluye resumen consolidado con HC (número de agentes por hora)</p>
+        <p>✨ HC cuenta solo agentes con actividad en esa fecha y hora</p>
     </div>
 """, unsafe_allow_html=True)
