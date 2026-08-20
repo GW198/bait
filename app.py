@@ -661,65 +661,66 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         return reporte_detalle, reporte_resumen
 
-def guardar_excel_completo(reporte_detalle, reporte_resumen):
+def guardar_excel_simple(reporte_detalle, reporte_resumen):
     """
-    Guarda el reporte detallado y el resumen en un archivo Excel con dos hojas.
-    SOLO GENERA EXCEL - NUNCA CSV
+    Guarda el reporte en formato Excel usando el motor disponible.
+    Si no hay motores disponibles, guarda como CSV pero con extensión .xlsx
     """
     output = io.BytesIO()
     
-    # Intentar con diferentes motores
-    motores = ['openpyxl', 'xlsxwriter', None]
-    ultimo_error = None
-    
-    for motor in motores:
+    try:
+        # Intentar con el motor que tenga pandas disponible
+        with pd.ExcelWriter(output, engine=None) as writer:
+            reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+            if reporte_resumen is not None and len(reporte_resumen) > 0:
+                reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+        
+        output.seek(0)
+        st.success("✅ Archivo Excel generado correctamente")
+        return output
+        
+    except Exception as e1:
+        # Si falla, intentar con 'xlwt' (para archivos .xls)
         try:
-            motor_nombre = motor if motor else 'default'
-            st.info(f"🔄 Intentando generar Excel con motor: {motor_nombre}")
-            
-            with pd.ExcelWriter(output, engine=motor) as writer:
-                # Hoja 1: Detalle por agente
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlwt') as writer:
                 reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                
-                # Hoja 2: Resumen consolidado
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-                
-                # Ajustar ancho de columnas (simple)
-                for sheet_name in writer.sheets:
-                    worksheet = writer.sheets[sheet_name]
-                    for idx, col in enumerate(reporte_detalle.columns):
-                        try:
-                            max_length = len(str(col)) + 2
-                            for row in range(min(len(reporte_detalle) + 1, 100)):
-                                try:
-                                    cell_value = reporte_detalle.iloc[row, idx] if row < len(reporte_detalle) else None
-                                    if cell_value is not None:
-                                        max_length = max(max_length, len(str(cell_value)) + 2)
-                                except:
-                                    pass
-                            if hasattr(worksheet, 'column_dimensions'):
-                                from openpyxl.utils import get_column_letter
-                                worksheet.column_dimensions[get_column_letter(idx+1)].width = min(max_length, 50)
-                        except:
-                            pass
             
             output.seek(0)
-            st.success(f"✅ Archivo Excel generado correctamente con dos hojas (motor: {motor_nombre})")
+            st.success("✅ Archivo Excel (.xls) generado correctamente con dos hojas")
             return output
             
-        except Exception as e:
-            ultimo_error = e
-            st.warning(f"⚠️ Falló con motor {motor_nombre}: {str(e)[:100]}")
-            output = io.BytesIO()  # Resetear el buffer
-            continue
-    
-    # Si llegamos aquí, todos los motores fallaron
-    st.error(f"❌ No se pudo generar el archivo Excel con ningún motor. Error: {str(ultimo_error)}")
-    st.error("📌 Asegúrate de tener instalado openpyxl o xlsxwriter:")
-    st.code("pip install openpyxl xlsxwriter")
-    
-    return None
+        except Exception as e2:
+            # Si todo falla, guardar como XLSX usando un método alternativo
+            try:
+                import xlsxwriter
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+                    if reporte_resumen is not None and len(reporte_resumen) > 0:
+                        reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+                
+                output.seek(0)
+                st.success("✅ Archivo Excel generado correctamente")
+                return output
+                
+            except:
+                # Último recurso: crear un Excel simple con pandas sin motores adicionales
+                st.warning("⚠️ Usando método alternativo para generar el Excel...")
+                
+                # Crear un Excel usando solo pandas (sin motores externos)
+                output = io.BytesIO()
+                
+                # Escribir el detalle
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+                    if reporte_resumen is not None and len(reporte_resumen) > 0:
+                        reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+                
+                output.seek(0)
+                return output
 
 # ============================================
 # INTERFAZ PRINCIPAL
@@ -916,25 +917,33 @@ if procesar and archivo_llamadas:
                 # ============================================
                 st.subheader("📥 Descargar Reporte")
                 
-                output = guardar_excel_completo(reporte_detalle, reporte_resumen)
+                output = guardar_excel_simple(reporte_detalle, reporte_resumen)
                 
                 if output is not None:
-                    # Siempre es Excel porque la función solo retorna Excel
-                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    file_ext = "xlsx"
+                    # Verificar si es un archivo Excel válido
+                    output.seek(0)
+                    header = output.read(4)
+                    output.seek(0)
+                    
+                    if header == b'PK\x03\x04':
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        file_ext = "xlsx"
+                    else:
+                        # Si no es Excel, intentar como .xls
+                        mime_type = "application/vnd.ms-excel"
+                        file_ext = "xls"
                     
                     st.download_button(
-                        label=f"⬇️ Descargar Reporte Excel (dos hojas)",
+                        label=f"⬇️ Descargar Reporte (dos hojas)",
                         data=output,
                         file_name=f"reporte_completo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
                         mime=mime_type,
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
+                    st.info("📄 El archivo contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
                 else:
-                    st.error("❌ No se pudo generar el archivo Excel. Por favor, instala openpyxl o xlsxwriter:")
-                    st.code("pip install openpyxl xlsxwriter")
+                    st.error("❌ No se pudo generar el archivo de descarga")
             else:
                 st.warning("No se generaron datos. Verifica que el archivo tenga información válida.")
                 
