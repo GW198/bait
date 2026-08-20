@@ -71,7 +71,8 @@ MAPEO_AGENTES = {
     'RPYANEZ': 'Roberto Patricio Yañez Bajonero',
     'ADM-LPRECIADO': 'Leonel Martinez Preciado',
     'BMG_VVPS':'Vanessa Valentina Pinto Salinas',
-    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril'}
+    'JLSANCHEZ': 'Jorge Luis Sanchez Becerril',
+}
 
 AGENTES_ORDER = [
     'Eduardo Reyes Abasolo',
