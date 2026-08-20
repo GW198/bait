@@ -44,13 +44,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Título
-st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1><p>Sube tu archivo de llamadas y genera reportes automáticos</p></div>', unsafe_allow_html=True)
 
 # ============================================
 # MAPEO DE AGENTES
 # ============================================
 MAPEO_AGENTES = {
-    'BMG_GYHV':'Greisi Yenifer Hernandez Valenzuela',
+   'BMG_GYHV':'Greisi Yenifer Hernandez Valenzuela',
     'BMG_LPVH':'Lorenys Patricia Villarroel Hernandez',
     'BT-CREBECA': 'Rebeca Carmona Martell',
     'BT-ERUIZ': 'Emmanuel Ruiz Vera',
@@ -434,6 +434,7 @@ def generar_resumen_consolidado(reporte_detalle):
     HC, Hrs conexión, Registros, Llamadas, Contacto, Ventas, Conversión, VPH
     
     HC = Número de agentes que tuvieron actividad en esa fecha y hora
+    Hrs conexión = Promedio de horas de conexión por agente (máximo 1 por agente)
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return None
@@ -441,14 +442,16 @@ def generar_resumen_consolidado(reporte_detalle):
     # Crear una copia del dataframe
     df = reporte_detalle.copy()
     
-    # Para cada combinación de FECHA y Rango_Hora, contar agentes con actividad
-    # Un agente tiene actividad si tiene Registros > 0 o Contacto > 0 o Ventas > 0
+    # Marcar agentes con actividad
     df['Tiene_Actividad'] = (df['Registros'] > 0) | (df['Contacto'] > 0) | (df['Ventas'] > 0)
     
-    # Agrupar por FECHA y Rango_Hora
+    # Para cada combinación de FECHA y Rango_Hora, calcular:
+    # - HC: agentes con actividad
+    # - Hrs conexión: promedio de horas de conexión por agente (máximo 1)
+    # - Registros, Llamadas, Contacto, Ventas: sumas
     resumen = df.groupby(['FECHA', 'Rango_Hora']).agg({
-        'AGENTE': lambda x: x[df.loc[x.index, 'Tiene_Actividad']].nunique(),  # HC = agentes con actividad
-        'Total conexión': 'sum',  # Suma de horas de conexión
+        'AGENTE': lambda x: x[df.loc[x.index, 'Tiene_Actividad']].nunique(),  # HC
+        'Total conexión': lambda x: (x / df.loc[x.index, 'AGENTE'].nunique()).mean() if df.loc[x.index, 'AGENTE'].nunique() > 0 else 0,  # Promedio por agente
         'Registros': 'sum',
         'Llamadas': 'sum',
         'Contacto': 'sum',
@@ -457,6 +460,9 @@ def generar_resumen_consolidado(reporte_detalle):
     
     # Renombrar columnas
     resumen.columns = ['FECHA', 'Rango_Hora', 'HC', 'Hrs conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas']
+    
+    # Limitar Hrs conexión a máximo 1 (porque es por hora)
+    resumen['Hrs conexión'] = resumen['Hrs conexión'].clip(upper=1.0)
     
     # Calcular Conversión y VPH
     resumen['Conversión'] = (resumen['Ventas'] / resumen['Contacto'] * 100).round(2)
@@ -562,7 +568,6 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         progress_bar.progress(70)
         
         # 7. Obtener lista de agentes que realmente tienen actividad en cada fecha
-        # Primero, identificamos qué agentes tienen actividad en cada fecha
         agentes_por_fecha = {}
         for fecha in fechas_disponibles:
             df_fecha = agrupado[agrupado['FECHA'] == fecha]
@@ -573,10 +578,8 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         reporte_list = []
         
         for fecha in fechas_disponibles:
-            # Obtener agentes activos para esta fecha
             agentes_activos = agentes_por_fecha.get(fecha, [])
             
-            # Si no hay agentes activos, saltar
             if not agentes_activos:
                 continue
             
@@ -609,7 +612,6 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         reporte_detalle = pd.DataFrame(reporte_list)
         
-        # Si no hay datos, retornar None
         if len(reporte_detalle) == 0:
             st.warning("No se encontraron datos para ningún agente")
             return None, None
@@ -629,7 +631,8 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                     for idx, row in reporte_detalle.iterrows():
                         key = f"{row['AGENTE']}|{row['Rango_Hora']}"
                         horas = tiempos_dict.get(key, 0.0)
-                        reporte_detalle.at[idx, 'Total conexión'] = round(horas, 2)
+                        # Limitar a máximo 1 hora por agente por rango horario
+                        reporte_detalle.at[idx, 'Total conexión'] = round(min(horas, 1.0), 2)
                         reporte_detalle.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0.0
                     
                     st.success(f"✅ Tiempos procesados: {len(tiempos_dict)} combinaciones agente-hora")
@@ -816,7 +819,7 @@ if procesar and archivo_llamadas:
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)")
+                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)")
                     
                     # Filtro de fecha para el resumen
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
@@ -835,7 +838,7 @@ if procesar and archivo_llamadas:
                             "FECHA": st.column_config.TextColumn("Fecha"),
                             "Rango_Hora": st.column_config.TextColumn("Hora"),
                             "HC": st.column_config.NumberColumn("HC", help="Número de agentes con actividad"),
-                            "Hrs conexión": st.column_config.NumberColumn("Hrs Conexión", format="%.2f"),
+                            "Hrs conexión": st.column_config.NumberColumn("Hrs Conexión", format="%.2f", help="Promedio de horas por agente (máx 1)"),
                             "Registros": st.column_config.NumberColumn("Registros"),
                             "Llamadas": st.column_config.NumberColumn("Llamadas"),
                             "Contacto": st.column_config.NumberColumn("Contactos"),
@@ -911,7 +914,7 @@ if procesar and archivo_llamadas:
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen por fecha y hora con HC (número de agentes con actividad)")
+                    st.info("📄 El archivo Excel contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC (agentes activos) y Hrs conexión promedio (máx 1)")
                 else:
                     st.error("No se pudo generar el archivo de descarga")
             else:
@@ -934,6 +937,6 @@ st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
         <p>📊 Procesador de Llamadas - Desarrollado con Streamlit</p>
         <p>Soporta archivos Excel (.xlsx, .xls) y CSV</p>
-        <p>✨ HC cuenta solo agentes con actividad en esa fecha y hora</p>
+        <p>✨ HC = Agentes con actividad | Hrs conexión = Promedio (máx 1 hora por agente)</p>
     </div>
 """, unsafe_allow_html=True)
