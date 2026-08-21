@@ -520,14 +520,22 @@ def identificar_columna_fecha(df):
     
     return None
 
-def calcular_vph(ventas, horas_conexion):
+def calcular_vph(ventas, horas_conexion, min_horas=0.25):
     """
-    Calcula el VPH (Ventas por Hora) de manera exacta.
+    Calcula el VPH (Ventas por Hora).
+    
     VPH = Ventas / Horas de Conexión
     
-    Si no hay ventas o no hay horas de conexión, el VPH es 0.
+    Solo se calcula si:
+    - Hay ventas > 0
+    - Las horas de conexión son >= min_horas (15 minutos por defecto)
+    
+    Si no cumple las condiciones, retorna 0.
     """
-    if ventas == 0 or horas_conexion == 0:
+    if ventas == 0:
+        return 0.0
+    
+    if horas_conexion < min_horas:
         return 0.0
     
     vph = ventas / horas_conexion
@@ -540,7 +548,7 @@ def generar_resumen_consolidado(reporte_detalle):
     
     HC = Número de agentes que tuvieron actividad en esa fecha y hora
     Hrs conexión = Promedio de horas de conexión por agente (máximo 1 por agente)
-    VPH = Ventas / Horas de Conexión
+    VPH = Ventas / Horas de Conexión (solo si hay al menos 15 minutos de conexión)
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return None
@@ -574,7 +582,7 @@ def generar_resumen_consolidado(reporte_detalle):
     resumen['Conversión'] = (resumen['Ventas'] / resumen['Contacto'] * 100).round(2)
     resumen['Conversión'] = resumen['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
     
-    # Calcular VPH exacto: Ventas / Horas de Conexión
+    # Calcular VPH: Ventas / Horas de Conexión (mínimo 0.25 horas)
     resumen['VPH'] = resumen.apply(
         lambda row: calcular_vph(row['Ventas'], row['Hrs conexión']),
         axis=1
@@ -596,7 +604,7 @@ def generar_tablas_por_campana_site(reporte_detalle):
     """
     Genera tablas separadas para cada combinación de Campaña y SITE.
     Retorna un diccionario con las tablas.
-    VPH = Ventas / Total conexión
+    VPH = Ventas / Total conexión (solo si hay al menos 15 minutos de conexión)
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return {}
@@ -632,7 +640,7 @@ def generar_tablas_por_campana_site(reporte_detalle):
         resumen_agente['Conversión'] = (resumen_agente['Ventas'] / resumen_agente['Contacto'] * 100).round(2)
         resumen_agente['Conversión'] = resumen_agente['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
         
-        # Calcular VPH exacto: Ventas / Total conexión
+        # Calcular VPH: Ventas / Total conexión (mínimo 0.25 horas)
         resumen_agente['VPH'] = resumen_agente.apply(
             lambda row: calcular_vph(row['Ventas'], row['Total conexión']),
             axis=1
@@ -898,7 +906,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                         # Limitar a máximo 1 hora por agente por rango horario
                         reporte_detalle.at[idx, 'Total conexión'] = round(min(horas, 1.0), 2)
                         
-                        # Calcular VPH exacto: Ventas / Horas de Conexión
+                        # Calcular VPH: Ventas / Horas de Conexión (mínimo 0.25 horas)
                         ventas = row['Ventas']
                         horas_conn = reporte_detalle.at[idx, 'Total conexión']
                         reporte_detalle.at[idx, 'VPH'] = calcular_vph(ventas, horas_conn)
@@ -1119,7 +1127,7 @@ if procesar and archivo_llamadas:
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión")
+                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión (mínimo 15 minutos de conexión)")
                     
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha_resumen = st.selectbox("📅 Filtrar resumen por fecha:", fechas_opciones, key="filtro_resumen")
