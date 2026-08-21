@@ -103,6 +103,34 @@ AGENTE_CAMPANA_SITE = {
         'Campaña': 'Portabilidad',
         'SITE': 'México'
     },
+    'Fergie Zoe Alcantara García':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
+    'Carlos Alexis Viveros Garcia':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
+    'Daniel Alejandro Perez Rivera':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
+    'Angel Erubiel Gutierrez Martinez':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
+    'Roberto Patricio Yañez Bajonero':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
+    'Jorge Luis Sanchez Becerril':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
+    'Bryan Abundis Romo':{
+        'Campaña': 'Migración',
+        'SITE': 'México'
+    },
 }
 
 def obtener_campana(agente):
