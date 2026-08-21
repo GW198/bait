@@ -131,6 +131,30 @@ AGENTE_CAMPANA_SITE = {
         'Campaña': 'Migración',
         'SITE': 'México'
     },
+    'Greisi Yenifer Hernandez Valenzuela':{
+        'Campaña': 'Migración',
+        'SITE': 'Externo'
+    },
+    'Vanessa Valentina Pinto Salinas':{
+        'Campaña': 'Migración',
+        'SITE': 'Externo'
+    },
+    'Joaly Scarlet Garcia Noguera':{
+        'Campaña': 'Migración',
+        'SITE': 'Externo'
+    },
+    'Barbara Camila	Maurera campos':{
+        'Campaña': 'Migración',
+        'SITE': 'Externo'
+    },
+    'Astrid Milena Villalba Gómez':{
+        'Campaña': 'Migración',
+        'SITE': 'Externo'
+    },
+    'Lorenys Patricia Villarroel Hernandez':{
+        'Campaña': 'Migración',
+        'SITE': 'Externo'
+    }
 }
 
 def obtener_campana(agente):
