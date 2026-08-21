@@ -520,6 +520,19 @@ def identificar_columna_fecha(df):
     
     return None
 
+def calcular_vph(ventas, horas_conexion):
+    """
+    Calcula el VPH (Ventas por Hora) de manera exacta.
+    VPH = Ventas / Horas de Conexión
+    
+    Si no hay ventas o no hay horas de conexión, el VPH es 0.
+    """
+    if ventas == 0 or horas_conexion == 0:
+        return 0.0
+    
+    vph = ventas / horas_conexion
+    return round(vph, 2)
+
 def generar_resumen_consolidado(reporte_detalle):
     """
     Genera un resumen consolidado por fecha y hora con las columnas:
@@ -527,7 +540,7 @@ def generar_resumen_consolidado(reporte_detalle):
     
     HC = Número de agentes que tuvieron actividad en esa fecha y hora
     Hrs conexión = Promedio de horas de conexión por agente (máximo 1 por agente)
-    VPH = Ventas / Horas de Conexión (solo si hay horas de conexión > 0)
+    VPH = Ventas / Horas de Conexión
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return None
@@ -561,13 +574,11 @@ def generar_resumen_consolidado(reporte_detalle):
     resumen['Conversión'] = (resumen['Ventas'] / resumen['Contacto'] * 100).round(2)
     resumen['Conversión'] = resumen['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
     
-    # Calcular VPH correctamente: Ventas / Horas de Conexión
-    # Solo se calcula si Hrs conexión > 0
+    # Calcular VPH exacto: Ventas / Horas de Conexión
     resumen['VPH'] = resumen.apply(
-        lambda row: round(row['Ventas'] / row['Hrs conexión'], 2) if row['Hrs conexión'] > 0 else 0,
+        lambda row: calcular_vph(row['Ventas'], row['Hrs conexión']),
         axis=1
     )
-    resumen['VPH'] = resumen['VPH'].fillna(0).replace([np.inf, -np.inf], 0)
     
     # Formatear Conversión como porcentaje
     resumen['Conversión'] = resumen['Conversión'].apply(lambda x: f"{x}%")
@@ -585,7 +596,7 @@ def generar_tablas_por_campana_site(reporte_detalle):
     """
     Genera tablas separadas para cada combinación de Campaña y SITE.
     Retorna un diccionario con las tablas.
-    VPH = Ventas / Total conexión (solo si Total conexión > 0)
+    VPH = Ventas / Total conexión
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return {}
@@ -621,13 +632,11 @@ def generar_tablas_por_campana_site(reporte_detalle):
         resumen_agente['Conversión'] = (resumen_agente['Ventas'] / resumen_agente['Contacto'] * 100).round(2)
         resumen_agente['Conversión'] = resumen_agente['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
         
-        # Calcular VPH correctamente: Ventas / Total conexión
-        # Solo se calcula si Total conexión > 0
+        # Calcular VPH exacto: Ventas / Total conexión
         resumen_agente['VPH'] = resumen_agente.apply(
-            lambda row: round(row['Ventas'] / row['Total conexión'], 2) if row['Total conexión'] > 0 else 0,
+            lambda row: calcular_vph(row['Ventas'], row['Total conexión']),
             axis=1
         )
-        resumen_agente['VPH'] = resumen_agente['VPH'].fillna(0).replace([np.inf, -np.inf], 0)
         
         # Agregar totales por fecha
         totales_fecha = df_filtrado.groupby('FECHA').agg({
@@ -889,13 +898,10 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                         # Limitar a máximo 1 hora por agente por rango horario
                         reporte_detalle.at[idx, 'Total conexión'] = round(min(horas, 1.0), 2)
                         
-                        # Calcular VPH correctamente: Ventas / Horas de Conexión
+                        # Calcular VPH exacto: Ventas / Horas de Conexión
                         ventas = row['Ventas']
                         horas_conn = reporte_detalle.at[idx, 'Total conexión']
-                        if horas_conn > 0:
-                            reporte_detalle.at[idx, 'VPH'] = round(ventas / horas_conn, 2)
-                        else:
-                            reporte_detalle.at[idx, 'VPH'] = 0.0
+                        reporte_detalle.at[idx, 'VPH'] = calcular_vph(ventas, horas_conn)
                     
                     st.success(f"✅ Tiempos procesados: {len(tiempos_dict)} combinaciones agente-hora")
             except Exception as e:
