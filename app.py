@@ -527,6 +527,7 @@ def generar_resumen_consolidado(reporte_detalle):
     
     HC = Número de agentes que tuvieron actividad en esa fecha y hora
     Hrs conexión = Promedio de horas de conexión por agente (máximo 1 por agente)
+    VPH = Ventas / Horas de Conexión (solo si hay horas de conexión > 0)
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return None
@@ -556,12 +557,16 @@ def generar_resumen_consolidado(reporte_detalle):
     # Limitar Hrs conexión a máximo 1 (porque es por hora)
     resumen['Hrs conexión'] = resumen['Hrs conexión'].clip(upper=1.0)
     
-    # Calcular Conversión y VPH
+    # Calcular Conversión
     resumen['Conversión'] = (resumen['Ventas'] / resumen['Contacto'] * 100).round(2)
-    resumen['VPH'] = (resumen['Ventas'] / resumen['Hrs conexión']).round(2)
-    
-    # Reemplazar infinitos y NaN
     resumen['Conversión'] = resumen['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
+    
+    # Calcular VPH correctamente: Ventas / Horas de Conexión
+    # Solo se calcula si Hrs conexión > 0
+    resumen['VPH'] = resumen.apply(
+        lambda row: round(row['Ventas'] / row['Hrs conexión'], 2) if row['Hrs conexión'] > 0 else 0,
+        axis=1
+    )
     resumen['VPH'] = resumen['VPH'].fillna(0).replace([np.inf, -np.inf], 0)
     
     # Formatear Conversión como porcentaje
@@ -576,14 +581,11 @@ def generar_resumen_consolidado(reporte_detalle):
     
     return resumen
 
-# ============================================
-# NUEVAS FUNCIONES PARA TABLAS SEPARADAS POR CAMPAÑA Y SITE
-# ============================================
-
 def generar_tablas_por_campana_site(reporte_detalle):
     """
     Genera tablas separadas para cada combinación de Campaña y SITE.
     Retorna un diccionario con las tablas.
+    VPH = Ventas / Total conexión (solo si Total conexión > 0)
     """
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return {}
@@ -617,12 +619,15 @@ def generar_tablas_por_campana_site(reporte_detalle):
         
         # Calcular métricas adicionales
         resumen_agente['Conversión'] = (resumen_agente['Ventas'] / resumen_agente['Contacto'] * 100).round(2)
-        resumen_agente['Conversión'] = resumen_agente['Conversión'].fillna(0)
-        resumen_agente['VPH'] = (resumen_agente['Ventas'] / resumen_agente['Total conexión']).round(2)
-        resumen_agente['VPH'] = resumen_agente['VPH'].fillna(0).replace([np.inf, -np.inf], 0)
+        resumen_agente['Conversión'] = resumen_agente['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
         
-        # Limitar horas de conexión
-        resumen_agente['Total conexión'] = resumen_agente['Total conexión'].clip(upper=1.0)
+        # Calcular VPH correctamente: Ventas / Total conexión
+        # Solo se calcula si Total conexión > 0
+        resumen_agente['VPH'] = resumen_agente.apply(
+            lambda row: round(row['Ventas'] / row['Total conexión'], 2) if row['Total conexión'] > 0 else 0,
+            axis=1
+        )
+        resumen_agente['VPH'] = resumen_agente['VPH'].fillna(0).replace([np.inf, -np.inf], 0)
         
         # Agregar totales por fecha
         totales_fecha = df_filtrado.groupby('FECHA').agg({
@@ -635,7 +640,7 @@ def generar_tablas_por_campana_site(reporte_detalle):
         totales_fecha['AGENTE'] = 'TOTAL'
         totales_fecha['Total conexión'] = 0
         totales_fecha['Conversión'] = (totales_fecha['Ventas'] / totales_fecha['Contacto'] * 100).round(2)
-        totales_fecha['Conversión'] = totales_fecha['Conversión'].fillna(0)
+        totales_fecha['Conversión'] = totales_fecha['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
         totales_fecha['VPH'] = 0
         
         # Reordenar columnas
@@ -682,9 +687,12 @@ def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
                 # Escribir el detalle en la hoja
                 info['detalle'].to_excel(writer, sheet_name=sheet_name, index=False)
                 
-                # Agregar una fila en blanco y los totales
-                # (esto requiere manipulación más avanzada, lo dejamos como está)
-                
+                # Agregar los totales debajo del detalle
+                if len(info['totales']) > 0:
+                    totales_df = info['totales']
+                    startrow = len(info['detalle']) + 2
+                    totales_df.to_excel(writer, sheet_name=sheet_name, startrow=startrow, index=False, header=['TOTALES'] + [''] * (len(totales_df.columns) - 1))
+            
             st.success(f"✅ Tablas generadas: {len(tablas)} combinaciones de Campaña y SITE")
             
             # Mostrar qué tablas se generaron
@@ -880,7 +888,14 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
                         horas = tiempos_dict.get(key, 0.0)
                         # Limitar a máximo 1 hora por agente por rango horario
                         reporte_detalle.at[idx, 'Total conexión'] = round(min(horas, 1.0), 2)
-                        reporte_detalle.at[idx, 'VPH'] = round(row['Ventas'] / horas, 2) if horas > 0 else 0.0
+                        
+                        # Calcular VPH correctamente: Ventas / Horas de Conexión
+                        ventas = row['Ventas']
+                        horas_conn = reporte_detalle.at[idx, 'Total conexión']
+                        if horas_conn > 0:
+                            reporte_detalle.at[idx, 'VPH'] = round(ventas / horas_conn, 2)
+                        else:
+                            reporte_detalle.at[idx, 'VPH'] = 0.0
                     
                     st.success(f"✅ Tiempos procesados: {len(tiempos_dict)} combinaciones agente-hora")
             except Exception as e:
@@ -1098,7 +1113,7 @@ if procesar and archivo_llamadas:
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)")
+                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión")
                     
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha_resumen = st.selectbox("📅 Filtrar resumen por fecha:", fechas_opciones, key="filtro_resumen")
