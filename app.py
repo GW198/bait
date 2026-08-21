@@ -56,7 +56,7 @@ MAPEO_AGENTES = {
     'BT-ERUIZ': 'Emmanuel Ruiz Vera',
     'BT-KGUTIERREZ': 'Kaelan Andre Gutierrez Gonzalez',
     'AVILLALBA': 'Astrid Milena Villalba Gómez',
-    'BMAURERA':'Barbara Camila	Maurera campos',
+    'BMAURERA':'Barbara Camila Maurera campos',
     'BT-AEDUARDO': 'Eduardo Abasolo Reyes',
     'JSGARCIA': 'Joaly Scarlet Garcia Noguera',
     'MRODRIGUEZ': 'Meyling Yamilet Rodríguez',
@@ -77,7 +77,6 @@ MAPEO_AGENTES = {
 # ============================================
 # CONFIGURACIÓN DE CAMPAÑA Y SITE POR AGENTE
 # ============================================
-# Definir la campaña y site para cada agente
 AGENTE_CAMPANA_SITE = {
     'Eduardo Reyes Abasolo': {
         'Campaña': 'Portabilidad',
@@ -99,7 +98,7 @@ AGENTE_CAMPANA_SITE = {
         'Campaña': 'Portabilidad',
         'SITE': 'México'
     },
-         'Emmanuel Ruiz Vera':{
+    'Emmanuel Ruiz Vera':{
         'Campaña': 'Portabilidad',
         'SITE': 'México'
     },
@@ -143,7 +142,7 @@ AGENTE_CAMPANA_SITE = {
         'Campaña': 'Migración',
         'SITE': 'Externo'
     },
-    'Barbara Camila	Maurera campos':{
+    'Barbara Camila Maurera campos':{
         'Campaña': 'Migración',
         'SITE': 'Externo'
     },
@@ -172,22 +171,6 @@ def obtener_site(agente):
     agente_str = str(agente).strip()
     info = AGENTE_CAMPANA_SITE.get(agente_str, {})
     return info.get('SITE', 'No Asignado')
-
-# Orden de agentes
-AGENTES_ORDER = [
-    'Eduardo Reyes Abasolo',
-    'Brebeca Carmona Martell',
-    'Kaelan Andre Gutierrez Gonzalez',
-    'Leonel Preciado Martínez',
-    'Ana Karen Padilla Martínez',
-    'Emmanuel Ruiz Vera',
-    'Fergie Zoe Alcantara',
-    'Jorge Cardenas',
-    'Maria Gonzalez',
-    'Ana Gramonte',
-    'Roberto Perez',
-    'Laura Sanchez'
-]
 
 RANGOS_HORA = [
     '9:00 A 10:00', '10:00 A 11:00', '11:00 A 12:00',
@@ -593,6 +576,149 @@ def generar_resumen_consolidado(reporte_detalle):
     
     return resumen
 
+# ============================================
+# NUEVAS FUNCIONES PARA TABLAS SEPARADAS POR CAMPAÑA Y SITE
+# ============================================
+
+def generar_tablas_por_campana_site(reporte_detalle):
+    """
+    Genera tablas separadas para cada combinación de Campaña y SITE.
+    Retorna un diccionario con las tablas.
+    """
+    if reporte_detalle is None or len(reporte_detalle) == 0:
+        return {}
+    
+    tablas = {}
+    
+    # Obtener todas las combinaciones únicas de Campaña y SITE
+    combinaciones = reporte_detalle[['CAMPAÑA', 'SITE']].drop_duplicates()
+    
+    for _, row in combinaciones.iterrows():
+        campana = row['CAMPAÑA']
+        site = row['SITE']
+        
+        # Filtrar datos para esta combinación
+        df_filtrado = reporte_detalle[
+            (reporte_detalle['CAMPAÑA'] == campana) & 
+            (reporte_detalle['SITE'] == site)
+        ]
+        
+        if len(df_filtrado) == 0:
+            continue
+        
+        # Crear resumen por agente para esta combinación
+        resumen_agente = df_filtrado.groupby(['FECHA', 'AGENTE']).agg({
+            'Total conexión': 'sum',
+            'Registros': 'sum',
+            'Llamadas': 'sum',
+            'Contacto': 'sum',
+            'Ventas': 'sum'
+        }).reset_index()
+        
+        # Calcular métricas adicionales
+        resumen_agente['Conversión'] = (resumen_agente['Ventas'] / resumen_agente['Contacto'] * 100).round(2)
+        resumen_agente['Conversión'] = resumen_agente['Conversión'].fillna(0)
+        resumen_agente['VPH'] = (resumen_agente['Ventas'] / resumen_agente['Total conexión']).round(2)
+        resumen_agente['VPH'] = resumen_agente['VPH'].fillna(0).replace([np.inf, -np.inf], 0)
+        
+        # Limitar horas de conexión
+        resumen_agente['Total conexión'] = resumen_agente['Total conexión'].clip(upper=1.0)
+        
+        # Agregar totales por fecha
+        totales_fecha = df_filtrado.groupby('FECHA').agg({
+            'Registros': 'sum',
+            'Llamadas': 'sum',
+            'Contacto': 'sum',
+            'Ventas': 'sum'
+        }).reset_index()
+        
+        totales_fecha['AGENTE'] = 'TOTAL'
+        totales_fecha['Total conexión'] = 0
+        totales_fecha['Conversión'] = (totales_fecha['Ventas'] / totales_fecha['Contacto'] * 100).round(2)
+        totales_fecha['Conversión'] = totales_fecha['Conversión'].fillna(0)
+        totales_fecha['VPH'] = 0
+        
+        # Reordenar columnas
+        columnas_orden = ['FECHA', 'AGENTE', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
+        resumen_agente = resumen_agente[columnas_orden]
+        totales_fecha = totales_fecha[columnas_orden]
+        
+        # Guardar en el diccionario
+        nombre_tabla = f"{campana}_{site}".replace(' ', '_')
+        tablas[nombre_tabla] = {
+            'campana': campana,
+            'site': site,
+            'detalle': resumen_agente,
+            'totales': totales_fecha
+        }
+    
+    return tablas
+
+def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
+    """
+    Guarda el reporte en formato Excel con múltiples hojas:
+    - Detalle_Agentes: Reporte detallado
+    - Resumen_Consolidado: Resumen por fecha y hora
+    - Tablas separadas por Campaña y SITE
+    """
+    output = io.BytesIO()
+    
+    try:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Hoja 1: Detalle de Agentes
+            reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+            
+            # Hoja 2: Resumen Consolidado
+            if reporte_resumen is not None and len(reporte_resumen) > 0:
+                reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+            
+            # Hojas 3+: Tablas por Campaña y SITE
+            tablas = generar_tablas_por_campana_site(reporte_detalle)
+            
+            for nombre_tabla, info in tablas.items():
+                # Crear nombre de hoja (máximo 31 caracteres para Excel)
+                sheet_name = f"{info['campana']}_{info['site']}"[:31]
+                
+                # Escribir el detalle en la hoja
+                info['detalle'].to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Agregar una fila en blanco y los totales
+                # (esto requiere manipulación más avanzada, lo dejamos como está)
+                
+            st.success(f"✅ Tablas generadas: {len(tablas)} combinaciones de Campaña y SITE")
+            
+            # Mostrar qué tablas se generaron
+            if tablas:
+                nombres = [f"{info['campana']} - {info['site']}" for info in tablas.values()]
+                st.info(f"📄 Hojas creadas: {', '.join(nombres)}")
+        
+        output.seek(0)
+        return output
+        
+    except Exception as e:
+        # Si falla con openpyxl, intentar con otro motor
+        try:
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlwt') as writer:
+                reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
+                if reporte_resumen is not None and len(reporte_resumen) > 0:
+                    reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
+                
+                # Tablas por Campaña y SITE (limitado a 3 hojas en xlwt)
+                tablas = generar_tablas_por_campana_site(reporte_detalle)
+                for i, (nombre_tabla, info) in enumerate(list(tablas.items())[:3]):
+                    sheet_name = f"{info['campana']}_{info['site']}"[:31]
+                    info['detalle'].to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            output.seek(0)
+            st.warning("⚠️ Usando formato .xls (solo se incluyeron 3 tablas)")
+            return output
+            
+        except Exception as e2:
+            st.error(f"❌ No se pudo generar el archivo Excel: {e2}")
+            st.code("pip install openpyxl")
+            return None
+
 @st.cache_data
 def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
     """Procesa los datos y genera el reporte detallado y el resumen consolidado"""
@@ -778,42 +904,6 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True)
         
         return reporte_detalle, reporte_resumen
 
-def guardar_excel_simple(reporte_detalle, reporte_resumen):
-    """
-    Guarda el reporte en formato Excel usando el motor disponible.
-    """
-    output = io.BytesIO()
-    
-    try:
-        # Intentar con el motor que tenga pandas disponible
-        with pd.ExcelWriter(output, engine=None) as writer:
-            reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-            if reporte_resumen is not None and len(reporte_resumen) > 0:
-                reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-        
-        output.seek(0)
-        st.success("✅ Archivo Excel generado correctamente")
-        return output
-        
-    except Exception as e1:
-        # Si falla, intentar con 'xlwt' (para archivos .xls)
-        try:
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlwt') as writer:
-                reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
-                if reporte_resumen is not None and len(reporte_resumen) > 0:
-                    reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
-            
-            output.seek(0)
-            st.success("✅ Archivo Excel (.xls) generado correctamente con dos hojas")
-            return output
-            
-        except Exception as e2:
-            # Si todo falla, mostrar error
-            st.error("❌ No se pudo generar el archivo Excel. Por favor, instala openpyxl o xlsxwriter")
-            st.code("pip install openpyxl xlsxwriter")
-            return None
-
 # ============================================
 # INTERFAZ PRINCIPAL
 # ============================================
@@ -873,10 +963,6 @@ if procesar and archivo_llamadas:
                 fechas_disponibles = sorted(reporte_detalle['FECHA'].unique())
                 total_dias = len(fechas_disponibles)
                 agentes_unicos = reporte_detalle['AGENTE'].nunique()
-                
-                # Estadísticas por campaña
-                campanas = reporte_detalle['CAMPAÑA'].unique()
-                sites = reporte_detalle['SITE'].unique()
                 
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
@@ -961,13 +1047,59 @@ if procesar and archivo_llamadas:
                 )
                 
                 # ============================================
+                # TABLAS POR CAMPAÑA Y SITE (Visualización)
+                # ============================================
+                st.subheader("📋 Tablas por Campaña y SITE")
+                
+                tablas = generar_tablas_por_campana_site(reporte_detalle)
+                
+                # Crear tabs para cada combinación
+                if tablas:
+                    tab_names = [f"{info['campana']} - {info['site']}" for info in tablas.values()]
+                    tabs = st.tabs(tab_names)
+                    
+                    for i, (nombre_tabla, info) in enumerate(tablas.items()):
+                        with tabs[i]:
+                            st.markdown(f"### {info['campana']} - {info['site']}")
+                            
+                            # Mostrar resumen de la combinación
+                            total_contactos = info['detalle']['Contacto'].sum()
+                            total_ventas = info['detalle']['Ventas'].sum()
+                            conversion = (total_ventas / total_contactos * 100) if total_contactos > 0 else 0
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Contactos", f"{total_contactos:,}")
+                            with col2:
+                                st.metric("Ventas", f"{total_ventas:,}")
+                            with col3:
+                                st.metric("Conversión", f"{conversion:.2f}%")
+                            
+                            # Mostrar detalle por agente
+                            st.dataframe(
+                                info['detalle'],
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "FECHA": st.column_config.TextColumn("Fecha"),
+                                    "AGENTE": st.column_config.TextColumn("Agente"),
+                                    "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
+                                    "Registros": st.column_config.NumberColumn("Registros"),
+                                    "Llamadas": st.column_config.NumberColumn("Llamadas"),
+                                    "Contacto": st.column_config.NumberColumn("Contacto"),
+                                    "Ventas": st.column_config.NumberColumn("Ventas"),
+                                    "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
+                                    "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
+                                }
+                            )
+                
+                # ============================================
                 # RESUMEN CONSOLIDADO
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
                     st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)")
                     
-                    # Filtro de fecha para el resumen
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha_resumen = st.selectbox("📅 Filtrar resumen por fecha:", fechas_opciones, key="filtro_resumen")
                     
@@ -1050,10 +1182,9 @@ if procesar and archivo_llamadas:
                 # ============================================
                 st.subheader("📥 Descargar Reporte")
                 
-                output = guardar_excel_simple(reporte_detalle, reporte_resumen)
+                output = guardar_excel_con_tablas(reporte_detalle, reporte_resumen)
                 
                 if output is not None:
-                    # Verificar si es un archivo Excel válido
                     output.seek(0)
                     header = output.read(4)
                     output.seek(0)
@@ -1066,14 +1197,14 @@ if procesar and archivo_llamadas:
                         file_ext = "xls"
                     
                     st.download_button(
-                        label=f"⬇️ Descargar Reporte (dos hojas)",
+                        label=f"⬇️ Descargar Reporte (Múltiples hojas)",
                         data=output,
                         file_name=f"reporte_completo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
                         mime=mime_type,
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo contiene dos hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora (incluye Campaña y SITE)\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio")
+                    st.info("📄 El archivo contiene múltiples hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio\n- **Campaña_SITE**: Tablas separadas por Campaña y SITE (México/Portabilidad, México/Migración, Externo/Migración)")
                 else:
                     st.error("❌ No se pudo generar el archivo de descarga")
             else:
