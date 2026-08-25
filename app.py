@@ -47,7 +47,7 @@ st.markdown("""
 st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1></div>', unsafe_allow_html=True)
 
 # ============================================
-# CLASE VALIDADORA CRM (CORREGIDA)
+# CLASE VALIDADORA CRM
 # ============================================
 
 class CRMValidator:
@@ -62,7 +62,6 @@ class CRMValidator:
         if self.crm_df is not None and len(self.crm_df) > 0:
             # Limpiar usuarios: RRS-AFIGUEROA -> BT-CREBECA
             if 'USUARIO' in self.crm_df.columns:
-                # Convertir a string y luego limpiar
                 self.crm_df['USUARIO_STR'] = self.crm_df['USUARIO'].astype(str)
                 self.crm_df['USUARIO_LIMPIO'] = self.crm_df['USUARIO_STR'].str.replace('RRS-', 'BT-', regex=False)
             
@@ -102,18 +101,15 @@ class CRMValidator:
         if not usuario_crm:
             return False, f"Agente '{agente_limpio}' no encontrado en mapeo CRM", "NULA"
         
-        # Buscar en CRM - usando columnas seguras
+        # Buscar en CRM
         crm_matches = pd.DataFrame()
         
-        # Intentar con USUARIO_LIMPIO
         if 'USUARIO_LIMPIO' in self.crm_df.columns:
             crm_matches = self.crm_df[self.crm_df['USUARIO_LIMPIO'] == usuario_crm]
         
-        # Si no hay, intentar con USUARIO_STR
         if len(crm_matches) == 0 and 'USUARIO_STR' in self.crm_df.columns:
             crm_matches = self.crm_df[self.crm_df['USUARIO_STR'].str.contains(usuario_crm.replace('BT-', ''), case=False, na=False)]
         
-        # Si aún no hay, intentar con USUARIO original
         if len(crm_matches) == 0 and 'USUARIO' in self.crm_df.columns:
             usuario_orig = usuario_crm.replace('BT-', '')
             crm_matches = self.crm_df[self.crm_df['USUARIO'].astype(str).str.contains(usuario_orig, case=False, na=False)]
@@ -129,22 +125,19 @@ class CRMValidator:
                 if 'FECHA_SIMPLE' in crm_matches.columns:
                     crm_fechas = crm_matches['FECHA_SIMPLE'].dropna().unique()
                 else:
-                    # Si no hay FECHA_SIMPLE, intentar con FECHA_REGISTRO
                     crm_fechas = pd.to_datetime(crm_matches['FECHA_REGISTRO']).dt.date.dropna().unique()
                 
                 if fecha_venta_dt in crm_fechas:
-                    # Coincidencia exacta
                     return True, f"Venta confirmada en CRM para {usuario_crm} el {fecha_venta_dt}", "ALTA"
                 else:
-                    # Verificar si hay fechas cercanas
                     fechas_crm = sorted(crm_fechas)
                     if len(fechas_crm) > 0:
                         for fecha_crm in fechas_crm:
                             diff = (fecha_venta_dt - fecha_crm).days
-                            if abs(diff) <= 1:  # Tolerancia de 1 día
+                            if abs(diff) <= 1:
                                 return True, f"Venta probable en CRM (fecha cercana: {fecha_crm})", "MEDIA"
                     
-                    return False, f"Usuario encontrado pero sin coincidencia de fecha ({fecha_venta_dt} vs {list(crm_fechas)[:3]})", "BAJA"
+                    return False, f"Usuario encontrado pero sin coincidencia de fecha", "BAJA"
             except Exception as e:
                 return False, f"Error al validar fecha: {str(e)}", "BAJA"
         
@@ -182,11 +175,11 @@ MAPEO_AGENTES = {
 # CONFIGURACIÓN DE CAMPAÑA Y SITE POR AGENTE
 # ============================================
 AGENTE_CAMPANA_SITE = {
-    'Eduardo Reyes Abasolo': {
+    'Rebeca Carmona Martell': {
         'Campaña': 'Portabilidad',
         'SITE': 'México'
     },
-    'Rebeca Carmona Martell': {
+    'Eduardo Reyes Abasolo': {
         'Campaña': 'Portabilidad',
         'SITE': 'México'
     },
@@ -294,6 +287,12 @@ def convertir_agente(agente):
     agente_str = str(agente).strip()
     agente_upper = agente_str.upper()
     
+    # Buscar coincidencia exacta primero
+    for key, value in MAPEO_AGENTES.items():
+        if key.upper() == agente_upper:
+            return value
+    
+    # Buscar coincidencia parcial
     for key, value in MAPEO_AGENTES.items():
         if key.upper() in agente_upper or agente_upper in key.upper():
             return value
@@ -312,6 +311,7 @@ def procesar_fecha(fecha_str):
             fecha_str = fecha_str.replace('a.m.', 'AM').replace('p.m.', 'PM')
             
             formatos = [
+                '%Y-%m-%d %H:%M:%S',  # Tu formato: 2026-08-01 09:03:21
                 '%d/%m/%Y %I:%M:%S %p',
                 '%d/%m/%Y %I:%M %p',
                 '%d/%m/%Y %H:%M:%S',
@@ -322,6 +322,8 @@ def procesar_fecha(fecha_str):
                 '%m/%d/%Y %I:%M %p',
                 '%d-%m-%Y %I:%M:%S %p',
                 '%d-%m-%Y %I:%M %p',
+                '%Y-%m-%d',  # Solo fecha
+                '%d/%m/%Y',  # Solo fecha
             ]
             
             for formato in formatos:
@@ -396,17 +398,17 @@ def leer_archivo(archivo):
     try:
         if extension == 'csv':
             try:
-                df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False, dtype=str)
+                df = pd.read_csv(archivo, encoding='utf-8-sig', low_memory=False)
             except:
-                df = pd.read_csv(archivo, encoding='latin-1', low_memory=False, dtype=str)
+                df = pd.read_csv(archivo, encoding='latin-1', low_memory=False)
         else:
             try:
-                df = pd.read_excel(archivo, engine='openpyxl', dtype=str)
+                df = pd.read_excel(archivo, engine='openpyxl')
             except:
                 try:
-                    df = pd.read_excel(archivo, engine='xlrd', dtype=str)
+                    df = pd.read_excel(archivo, engine='xlrd')
                 except:
-                    df = pd.read_excel(archivo, dtype=str)
+                    df = pd.read_excel(archivo)
         
         return df
     except Exception as e:
@@ -419,7 +421,6 @@ def leer_archivo_crm(archivo):
     df = leer_archivo(archivo)
     
     if df is not None:
-        # Verificar que tenga las columnas esperadas
         columnas_esperadas = ['USUARIO', 'NOMBRE_USUARIO', 'FECHA_REGISTRO']
         columnas_encontradas = [col for col in columnas_esperadas if col in df.columns]
         
@@ -594,7 +595,16 @@ def procesar_archivo_tiempos(df_tiempos):
                     if pd.isna(valor):
                         continue
                     
-                    minutos = limpiar_valor_numerico(valor)
+                    # Convertir tiempo HH:MM:SS a minutos
+                    if isinstance(valor, str) and ':' in valor:
+                        partes = valor.split(':')
+                        if len(partes) == 3:
+                            minutos = int(partes[0]) * 60 + int(partes[1]) + int(partes[2]) / 60
+                        else:
+                            minutos = limpiar_valor_numerico(valor)
+                    else:
+                        minutos = limpiar_valor_numerico(valor)
+                    
                     if minutos == 0:
                         continue
                     
@@ -619,7 +629,7 @@ def procesar_archivo_tiempos(df_tiempos):
 
 def identificar_columna_fecha(df):
     """Identifica automáticamente la columna de fecha"""
-    keywords = ['fecha', 'date', 'fech', 'día', 'dia']
+    keywords = ['fecha', 'date', 'fech', 'día', 'dia', 'inicio', 'hora']
     
     for col in df.columns:
         col_lower = str(col).lower()
@@ -642,17 +652,7 @@ def identificar_columna_fecha(df):
     return None
 
 def calcular_vph(ventas, horas_conexion, min_horas=0.25):
-    """
-    Calcula el VPH (Ventas por Hora).
-    
-    VPH = Ventas / Horas de Conexión
-    
-    Solo se calcula si:
-    - Hay ventas > 0
-    - Las horas de conexión son >= min_horas (15 minutos por defecto)
-    
-    Si no cumple las condiciones, retorna 0.
-    """
+    """Calcula el VPH (Ventas por Hora)"""
     if ventas == 0:
         return 0.0
     
@@ -663,83 +663,47 @@ def calcular_vph(ventas, horas_conexion, min_horas=0.25):
     return round(vph, 2)
 
 def generar_resumen_consolidado(reporte_detalle):
-    """
-    Genera un resumen consolidado por fecha y hora con las columnas:
-    HC, Hrs conexión, Registros, Llamadas, Contacto, Ventas, Conversión, VPH
-    
-    HC = Número de agentes que tuvieron actividad en esa fecha y hora
-    Hrs conexión = Promedio de horas de conexión por agente (máximo 1 por agente)
-    VPH = Ventas / Horas de Conexión (solo si hay al menos 15 minutos de conexión)
-    """
+    """Genera un resumen consolidado por fecha y hora"""
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return None
     
-    # Crear una copia del dataframe
     df = reporte_detalle.copy()
-    
-    # Marcar agentes con actividad
     df['Tiene_Actividad'] = (df['Registros'] > 0) | (df['Contacto'] > 0) | (df['Ventas'] > 0)
     
-    # Para cada combinación de FECHA y Rango_Hora, calcular:
-    # - HC: agentes con actividad
-    # - Hrs conexión: promedio de horas de conexión por agente (máximo 1)
-    # - Registros, Llamadas, Contacto, Ventas: sumas
     resumen = df.groupby(['FECHA', 'Rango_Hora']).agg({
-        'AGENTE': lambda x: x[df.loc[x.index, 'Tiene_Actividad']].nunique(),  # HC
-        'Total conexión': lambda x: (x / df.loc[x.index, 'AGENTE'].nunique()).mean() if df.loc[x.index, 'AGENTE'].nunique() > 0 else 0,  # Promedio por agente
+        'AGENTE': lambda x: x[df.loc[x.index, 'Tiene_Actividad']].nunique(),
+        'Total conexión': lambda x: (x / df.loc[x.index, 'AGENTE'].nunique()).mean() if df.loc[x.index, 'AGENTE'].nunique() > 0 else 0,
         'Registros': 'sum',
         'Llamadas': 'sum',
         'Contacto': 'sum',
         'Ventas': 'sum'
     }).reset_index()
     
-    # Renombrar columnas
     resumen.columns = ['FECHA', 'Rango_Hora', 'HC', 'Hrs conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas']
-    
-    # Limitar Hrs conexión a máximo 1 (porque es por hora)
     resumen['Hrs conexión'] = resumen['Hrs conexión'].clip(upper=1.0)
-    
-    # Calcular Conversión
     resumen['Conversión'] = (resumen['Ventas'] / resumen['Contacto'] * 100).round(2)
     resumen['Conversión'] = resumen['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
-    
-    # Calcular VPH: Ventas / Horas de Conexión (mínimo 0.25 horas)
-    resumen['VPH'] = resumen.apply(
-        lambda row: calcular_vph(row['Ventas'], row['Hrs conexión']),
-        axis=1
-    )
-    
-    # Formatear Conversión como porcentaje
+    resumen['VPH'] = resumen.apply(lambda row: calcular_vph(row['Ventas'], row['Hrs conexión']), axis=1)
     resumen['Conversión'] = resumen['Conversión'].apply(lambda x: f"{x}%")
     
-    # Reordenar columnas
     columnas_orden = ['FECHA', 'Rango_Hora', 'HC', 'Hrs conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
     resumen = resumen[columnas_orden]
-    
-    # Ordenar por fecha y hora
     resumen = resumen.sort_values(['FECHA', 'Rango_Hora'])
     
     return resumen
 
 def generar_tablas_por_campana_site(reporte_detalle):
-    """
-    Genera tablas separadas para cada combinación de Campaña y SITE.
-    Retorna un diccionario con las tablas.
-    VPH = Ventas / Total conexión (solo si hay al menos 15 minutos de conexión)
-    """
+    """Genera tablas separadas para cada combinación de Campaña y SITE"""
     if reporte_detalle is None or len(reporte_detalle) == 0:
         return {}
     
     tablas = {}
-    
-    # Obtener todas las combinaciones únicas de Campaña y SITE
     combinaciones = reporte_detalle[['CAMPAÑA', 'SITE']].drop_duplicates()
     
     for _, row in combinaciones.iterrows():
         campana = row['CAMPAÑA']
         site = row['SITE']
         
-        # Filtrar datos para esta combinación
         df_filtrado = reporte_detalle[
             (reporte_detalle['CAMPAÑA'] == campana) & 
             (reporte_detalle['SITE'] == site)
@@ -748,7 +712,6 @@ def generar_tablas_por_campana_site(reporte_detalle):
         if len(df_filtrado) == 0:
             continue
         
-        # Crear resumen por agente para esta combinación
         resumen_agente = df_filtrado.groupby(['FECHA', 'AGENTE']).agg({
             'Total conexión': 'sum',
             'Registros': 'sum',
@@ -757,17 +720,10 @@ def generar_tablas_por_campana_site(reporte_detalle):
             'Ventas': 'sum'
         }).reset_index()
         
-        # Calcular métricas adicionales
         resumen_agente['Conversión'] = (resumen_agente['Ventas'] / resumen_agente['Contacto'] * 100).round(2)
         resumen_agente['Conversión'] = resumen_agente['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
+        resumen_agente['VPH'] = resumen_agente.apply(lambda row: calcular_vph(row['Ventas'], row['Total conexión']), axis=1)
         
-        # Calcular VPH: Ventas / Total conexión (mínimo 0.25 horas)
-        resumen_agente['VPH'] = resumen_agente.apply(
-            lambda row: calcular_vph(row['Ventas'], row['Total conexión']),
-            axis=1
-        )
-        
-        # Agregar totales por fecha
         totales_fecha = df_filtrado.groupby('FECHA').agg({
             'Registros': 'sum',
             'Llamadas': 'sum',
@@ -781,12 +737,10 @@ def generar_tablas_por_campana_site(reporte_detalle):
         totales_fecha['Conversión'] = totales_fecha['Conversión'].fillna(0).replace([np.inf, -np.inf], 0)
         totales_fecha['VPH'] = 0
         
-        # Reordenar columnas
         columnas_orden = ['FECHA', 'AGENTE', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
         resumen_agente = resumen_agente[columnas_orden]
         totales_fecha = totales_fecha[columnas_orden]
         
-        # Guardar en el diccionario
         nombre_tabla = f"{campana}_{site}".replace(' ', '_')
         tablas[nombre_tabla] = {
             'campana': campana,
@@ -798,34 +752,22 @@ def generar_tablas_por_campana_site(reporte_detalle):
     return tablas
 
 def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
-    """
-    Guarda el reporte en formato Excel con múltiples hojas:
-    - Detalle_Agentes: Reporte detallado
-    - Resumen_Consolidado: Resumen por fecha y hora
-    - Tablas separadas por Campaña y SITE
-    """
+    """Guarda el reporte en formato Excel con múltiples hojas"""
     output = io.BytesIO()
     
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Hoja 1: Detalle de Agentes
             reporte_detalle.to_excel(writer, sheet_name='Detalle_Agentes', index=False)
             
-            # Hoja 2: Resumen Consolidado
             if reporte_resumen is not None and len(reporte_resumen) > 0:
                 reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
             
-            # Hojas 3+: Tablas por Campaña y SITE
             tablas = generar_tablas_por_campana_site(reporte_detalle)
             
             for nombre_tabla, info in tablas.items():
-                # Crear nombre de hoja (máximo 31 caracteres para Excel)
                 sheet_name = f"{info['campana']}_{info['site']}"[:31]
-                
-                # Escribir el detalle en la hoja
                 info['detalle'].to_excel(writer, sheet_name=sheet_name, index=False)
                 
-                # Agregar los totales debajo del detalle
                 if len(info['totales']) > 0:
                     totales_df = info['totales']
                     startrow = len(info['detalle']) + 2
@@ -833,7 +775,6 @@ def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
             
             st.success(f"✅ Tablas generadas: {len(tablas)} combinaciones de Campaña y SITE")
             
-            # Mostrar qué tablas se generaron
             if tablas:
                 nombres = [f"{info['campana']} - {info['site']}" for info in tablas.values()]
                 st.info(f"📄 Hojas creadas: {', '.join(nombres)}")
@@ -842,7 +783,6 @@ def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
         return output
         
     except Exception as e:
-        # Si falla con openpyxl, intentar con otro motor
         try:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlwt') as writer:
@@ -850,7 +790,6 @@ def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     reporte_resumen.to_excel(writer, sheet_name='Resumen_Consolidado', index=False)
                 
-                # Tablas por Campaña y SITE (limitado a 3 hojas en xlwt)
                 tablas = generar_tablas_por_campana_site(reporte_detalle)
                 for i, (nombre_tabla, info) in enumerate(list(tablas.items())[:3]):
                     sheet_name = f"{info['campana']}_{info['site']}"[:31]
@@ -872,35 +811,48 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
     with st.spinner('Procesando datos...'):
         progress_bar = st.progress(0)
         
-        # 0. Inicializar validador CRM si está activado
+        # 0. Inicializar validador CRM
         validador = None
         if validar_crm and df_crm is not None and len(df_crm) > 0:
             validador = CRMValidator(df_crm)
             st.success("✅ Validador CRM inicializado")
             progress_bar.progress(5)
         
-        # 1. Identificar columnas
+        # 1. Identificar columnas - CORREGIDO para tu archivo
         columnas = df_llamadas.columns.tolist()
+        st.write("Columnas encontradas:", columnas)  # Debug
         
-        fecha_col = identificar_columna_fecha(df_llamadas)
+        # Buscar columna de fecha
+        fecha_col = None
+        for col in columnas:
+            col_lower = str(col).lower()
+            if 'fecha y hora inicio' in col_lower or 'fecha y hora' in col_lower:
+                fecha_col = col
+                break
         
         if not fecha_col:
-            for col in columnas:
-                if 'Fecha' in col and 'inicio' in col:
-                    fecha_col = col
-                    break
+            fecha_col = identificar_columna_fecha(df_llamadas)
         
+        # Buscar columna de agente
         agente_col = None
-        disposition_col = None
-        
         for col in columnas:
-            if col != fecha_col and ('agente' in col.lower() or 'usuario' in col.lower()):
+            col_lower = str(col).lower()
+            if col_lower == 'agente' or 'agente' in col_lower:
                 agente_col = col
-            if 'Disposition' in col or 'POSPAGO' in col or 'Resultado' in col:
+                break
+        
+        # Buscar columna de disposición
+        disposition_col = None
+        for col in columnas:
+            col_lower = str(col).lower()
+            if 'disposition' in col_lower or 'disposition__pospago_bait' in col_lower:
                 disposition_col = col
+                break
+        
+        st.write(f"Fecha col: {fecha_col}, Agente col: {agente_col}, Disposition col: {disposition_col}")  # Debug
         
         if not fecha_col or not agente_col:
-            st.error("No se encontraron las columnas necesarias: 'Fecha' y 'Agente'")
+            st.error(f"No se encontraron las columnas necesarias. Fecha: {fecha_col}, Agente: {agente_col}")
             return None, None
         
         progress_bar.progress(10)
@@ -929,25 +881,32 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
         df_llamadas = df_llamadas.dropna(subset=['Agente_Nombre'])
         df_llamadas['Agente_Nombre'] = df_llamadas['Agente_Nombre'].astype(str)
         
+        if len(df_llamadas) == 0:
+            st.error("No se pudieron convertir agentes válidos.")
+            return None, None
+        
+        progress_bar.progress(50)
+        
         # 4. Agregar columnas de Campaña y SITE
         df_llamadas['Campaña'] = df_llamadas['Agente_Nombre'].apply(obtener_campana)
         df_llamadas['SITE'] = df_llamadas['Agente_Nombre'].apply(obtener_site)
         
-        progress_bar.progress(50)
-        
         # 5. Clasificar contactos y ventas
         if disposition_col:
+            # Usar la columna de disposición para clasificar
             df_llamadas['Es_Contacto'] = df_llamadas[disposition_col].apply(es_contacto)
             df_llamadas['Es_Venta'] = df_llamadas[disposition_col].apply(es_venta)
         else:
+            # Si no hay disposición, marcar todas como contacto pero no venta
             df_llamadas['Es_Contacto'] = True
             df_llamadas['Es_Venta'] = False
+        
+        progress_bar.progress(60)
         
         # 6. Validar ventas contra CRM
         if validar_crm and validador:
             st.info("🔍 Validando ventas contra CRM...")
             
-            # Crear columna de validación
             def validar_fila(row):
                 if row['Es_Venta']:
                     es_valida, mensaje, nivel = validador.validate_sale(
@@ -962,18 +921,16 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
             df_llamadas['Validacion_CRM'] = df_llamadas.apply(validar_fila, axis=1)
             df_llamadas['Venta_Confirmada'] = df_llamadas['Validacion_CRM'].str.contains('✅', na=False)
             
-            # Contar ventas confirmadas
             total_ventas = df_llamadas['Es_Venta'].sum()
             ventas_confirmadas = df_llamadas[df_llamadas['Es_Venta'] == True]['Venta_Confirmada'].sum()
             
             st.success(f"✅ Ventas validadas: {ventas_confirmadas}/{total_ventas} confirmadas en CRM")
             
-            progress_bar.progress(60)
+            progress_bar.progress(70)
         
-        # 7. Obtener lista de fechas disponibles
+        # 7. Agrupar por fecha, agente y rango de hora
         fechas_disponibles = sorted(df_llamadas['Fecha_Solo'].unique())
         
-        # 8. Agrupar por fecha, agente y rango de hora
         agrupado = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Campaña', 'SITE', 'Rango_Hora']).agg({
             'Es_Contacto': ['count', 'sum'],
             'Es_Venta': 'sum'
@@ -982,9 +939,8 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
         agrupado.columns = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
         agrupado['AGENTE'] = agrupado['AGENTE'].astype(str)
         
-        # 9. Agregar métricas de validación al agrupado
+        # 8. Agregar métricas de validación
         if validar_crm and validador:
-            # Agregar ventas confirmadas al agrupado
             ventas_confirmadas_por_grupo = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Rango_Hora']).agg({
                 'Venta_Confirmada': 'sum'
             }).reset_index()
@@ -995,26 +951,19 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
             agrupado['%_CRM'] = (agrupado['Ventas_Confirmadas'] / agrupado['Ventas'] * 100).round(2)
             agrupado['%_CRM'] = agrupado['%_CRM'].fillna(0).replace([np.inf, -np.inf], 0)
         
-        progress_bar.progress(70)
+        progress_bar.progress(80)
         
-        # 10. Obtener lista de agentes que realmente tienen actividad en cada fecha
-        agentes_por_fecha = {}
-        for fecha in fechas_disponibles:
-            df_fecha = agrupado[agrupado['FECHA'] == fecha]
-            agentes_activos = df_fecha[df_fecha['Registros'] > 0]['AGENTE'].unique().tolist()
-            agentes_por_fecha[fecha] = agentes_activos
-        
-        # 11. Crear reporte detallado SOLO con agentes que tuvieron actividad
+        # 9. Crear reporte detallado
         reporte_list = []
         
         for fecha in fechas_disponibles:
-            agentes_activos = agentes_por_fecha.get(fecha, [])
+            df_fecha = agrupado[agrupado['FECHA'] == fecha]
+            agentes_activos = df_fecha[df_fecha['Registros'] > 0]['AGENTE'].unique().tolist()
             
             if not agentes_activos:
                 continue
             
             for agente in agentes_activos:
-                # Obtener campaña y site del agente
                 campana = obtener_campana(agente)
                 site = obtener_site(agente)
                 
@@ -1047,7 +996,6 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
                     row['Total conexión'] = 0.0
                     row['VPH'] = 0.0
                     
-                    # Si no tiene ventas_confirmadas, agregar
                     if validar_crm and 'Ventas_Confirmadas' not in row:
                         row['Ventas_Confirmadas'] = 0
                         row['%_CRM'] = 0
@@ -1070,9 +1018,9 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
             reporte_detalle['Ventas_Confirmadas'] = reporte_detalle['Ventas_Confirmadas'].fillna(0).astype(int)
             reporte_detalle['%_CRM'] = reporte_detalle['%_CRM'].fillna(0).round(2)
         
-        progress_bar.progress(80)
+        progress_bar.progress(90)
         
-        # 12. Procesar tiempos de conexión
+        # 10. Procesar tiempos de conexión
         if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
                 tiempos_dict = procesar_archivo_tiempos(df_tiempos)
@@ -1081,10 +1029,8 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
                     for idx, row in reporte_detalle.iterrows():
                         key = f"{row['AGENTE']}|{row['Rango_Hora']}"
                         horas = tiempos_dict.get(key, 0.0)
-                        # Limitar a máximo 1 hora por agente por rango horario
                         reporte_detalle.at[idx, 'Total conexión'] = round(min(horas, 1.0), 2)
                         
-                        # Calcular VPH: Ventas / Horas de Conexión (mínimo 0.25 horas)
                         ventas = row['Ventas']
                         horas_conn = reporte_detalle.at[idx, 'Total conexión']
                         reporte_detalle.at[idx, 'VPH'] = calcular_vph(ventas, horas_conn)
@@ -1093,14 +1039,13 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
             except Exception as e:
                 st.warning(f"Error al procesar tiempos: {e}. Continuando sin tiempos.")
         
-        progress_bar.progress(90)
+        progress_bar.progress(95)
         
-        # 13. Redondear valores
+        # 11. Redondear y reordenar
         reporte_detalle['Conversión'] = reporte_detalle['Conversión'].round(2)
         reporte_detalle['VPH'] = reporte_detalle['VPH'].round(2)
         reporte_detalle['Total conexión'] = reporte_detalle['Total conexión'].round(2)
         
-        # 14. Reordenar columnas del detalle
         columnas_base = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
         
         if validar_crm and 'Ventas_Confirmadas' in reporte_detalle.columns:
@@ -1111,7 +1056,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
         
         reporte_detalle = reporte_detalle[columnas_detalle]
         
-        # 15. Generar resumen consolidado
+        # 12. Generar resumen consolidado
         reporte_resumen = generar_resumen_consolidado(reporte_detalle)
         
         progress_bar.progress(100)
@@ -1175,12 +1120,10 @@ if procesar and archivo_llamadas:
                 if df_tiempos is not None:
                     st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
             
-            # Cargar CRM
             df_crm = None
             if archivo_crm and validar_crm:
                 df_crm = leer_archivo_crm(archivo_crm)
             
-            # Procesar datos
             reporte_detalle, reporte_resumen = procesar_datos_completos(
                 df_llamadas, 
                 df_tiempos, 
@@ -1232,10 +1175,8 @@ if procesar and archivo_llamadas:
                         st.metric("Ventas Confirmadas", f"{ventas_confirmadas:,}")
                     with col_crm3:
                         pct_crm = (ventas_confirmadas / total_ventas * 100) if total_ventas > 0 else 0
-                        st.metric("Tasa de Confirmación", f"{pct_crm:.1f}%", 
-                                 help="Porcentaje de ventas que coinciden con el CRM")
+                        st.metric("Tasa de Confirmación", f"{pct_crm:.1f}%")
                     
-                    # Mostrar ventas no confirmadas si las hay
                     ventas_no_confirmadas = total_ventas - ventas_confirmadas
                     if ventas_no_confirmadas > 0:
                         st.warning(f"⚠️ {ventas_no_confirmadas} ventas NO confirmadas en CRM. Revisa el detalle.")
@@ -1269,13 +1210,12 @@ if procesar and archivo_llamadas:
                 )
                 
                 # ============================================
-                # TABLAS POR CAMPAÑA Y SITE (Visualización)
+                # TABLAS POR CAMPAÑA Y SITE
                 # ============================================
                 st.subheader("📋 Tablas por Campaña y SITE")
                 
                 tablas = generar_tablas_por_campana_site(reporte_detalle)
                 
-                # Crear tabs para cada combinación
                 if tablas:
                     tab_names = [f"{info['campana']} - {info['site']}" for info in tablas.values()]
                     tabs = st.tabs(tab_names)
@@ -1284,7 +1224,6 @@ if procesar and archivo_llamadas:
                         with tabs[i]:
                             st.markdown(f"### {info['campana']} - {info['site']}")
                             
-                            # Mostrar resumen de la combinación
                             total_contactos = info['detalle']['Contacto'].sum()
                             total_ventas = info['detalle']['Ventas'].sum()
                             conversion = (total_ventas / total_contactos * 100) if total_contactos > 0 else 0
@@ -1297,7 +1236,6 @@ if procesar and archivo_llamadas:
                             with col3:
                                 st.metric("Conversión", f"{conversion:.2f}%")
                             
-                            # Mostrar detalle por agente
                             st.dataframe(
                                 info['detalle'],
                                 use_container_width=True,
@@ -1320,7 +1258,7 @@ if procesar and archivo_llamadas:
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión (mínimo 15 minutos de conexión)")
+                    st.info("✅ HC = Número de agentes que trabajaron en esa hora\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión (mínimo 15 minutos de conexión)")
                     
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha_resumen = st.selectbox("📅 Filtrar resumen por fecha:", fechas_opciones, key="filtro_resumen")
@@ -1337,8 +1275,8 @@ if procesar and archivo_llamadas:
                         column_config={
                             "FECHA": st.column_config.TextColumn("Fecha"),
                             "Rango_Hora": st.column_config.TextColumn("Hora"),
-                            "HC": st.column_config.NumberColumn("HC", help="Número de agentes con actividad"),
-                            "Hrs conexión": st.column_config.NumberColumn("Hrs Conexión", format="%.2f", help="Promedio de horas por agente (máx 1)"),
+                            "HC": st.column_config.NumberColumn("HC"),
+                            "Hrs conexión": st.column_config.NumberColumn("Hrs Conexión", format="%.2f"),
                             "Registros": st.column_config.NumberColumn("Registros"),
                             "Llamadas": st.column_config.NumberColumn("Llamadas"),
                             "Contacto": st.column_config.NumberColumn("Contactos"),
@@ -1379,7 +1317,6 @@ if procesar and archivo_llamadas:
                 if filtro_campana != 'Todas':
                     detalle_filtrado = detalle_filtrado[detalle_filtrado['CAMPAÑA'] == filtro_campana]
                 
-                # Configuración de columnas incluyendo CRM
                 column_config = {
                     "FECHA": st.column_config.TextColumn("Fecha"),
                     "AGENTE": st.column_config.TextColumn("Agente"),
@@ -1396,8 +1333,8 @@ if procesar and archivo_llamadas:
                 }
                 
                 if validar_crm and 'Ventas_Confirmadas' in detalle_filtrado.columns:
-                    column_config["Ventas_Confirmadas"] = st.column_config.NumberColumn("Ventas CRM", help="Ventas confirmadas en CRM")
-                    column_config["%_CRM"] = st.column_config.NumberColumn("% CRM", format="%.1f%%", help="Porcentaje de ventas confirmadas en CRM")
+                    column_config["Ventas_Confirmadas"] = st.column_config.NumberColumn("Ventas CRM")
+                    column_config["%_CRM"] = st.column_config.NumberColumn("% CRM", format="%.1f%%")
                 
                 st.dataframe(
                     detalle_filtrado,
@@ -1426,14 +1363,14 @@ if procesar and archivo_llamadas:
                         file_ext = "xls"
                     
                     st.download_button(
-                        label=f"⬇️ Descargar Reporte (Múltiples hojas)",
+                        label=f"⬇️ Descargar Reporte",
                         data=output,
                         file_name=f"reporte_completo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}",
                         mime=mime_type,
                         use_container_width=True
                     )
                     
-                    st.info("📄 El archivo contiene múltiples hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio\n- **Campaña_SITE**: Tablas separadas por Campaña y SITE (México/Portabilidad, México/Migración, Externo/Migración)")
+                    st.info("📄 El archivo contiene múltiples hojas:\n- **Detalle_Agentes**: Desglose por agente, fecha y hora\n- **Resumen_Consolidado**: Resumen con HC y Hrs conexión promedio\n- **Campaña_SITE**: Tablas separadas por Campaña y SITE")
                 else:
                     st.error("❌ No se pudo generar el archivo de descarga")
             else:
