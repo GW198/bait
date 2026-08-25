@@ -702,31 +702,35 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
                 df_crm_clean['FECHA_REGISTRO'] = pd.to_datetime(df_crm_clean['FECHA_REGISTRO'])
                 df_crm_clean['FECHA_SIMPLE'] = df_crm_clean['FECHA_REGISTRO'].dt.date
             
-            # Mapear usuario CRM a agente
-            df_crm_clean['USUARIO_LIMPIO'] = df_crm_clean['USUARIO'].astype(str).str.replace('RRS-', 'BT-', regex=False)
+            # ============================================
+            # IMPORTANTE: Usar NOMBRE_USUARIO para buscar
+            # ============================================
+            if 'NOMBRE_USUARIO' in df_crm_clean.columns:
+                # Crear columna de agente nombre desde NOMBRE_USUARIO
+                df_crm_clean['AGENTE_NOMBRE'] = df_crm_clean['NOMBRE_USUARIO'].astype(str).str.strip()
+                
+                st.success(f"✅ Usando NOMBRE_USUARIO para identificar ventas: {df_crm_clean['AGENTE_NOMBRE'].nunique()} agentes únicos")
+            else:
+                st.warning("⚠️ No se encontró columna NOMBRE_USUARIO en CRM")
+                df_crm_clean['AGENTE_NOMBRE'] = None
             
-            # Crear columna de agente nombre para cruce
-            def mapear_crm_a_agente(usuario):
-                for key, value in MAPEO_AGENTES.items():
-                    if key == usuario or key in usuario:
-                        return value
-                return None
-            
-            df_crm_clean['AGENTE_NOMBRE'] = df_crm_clean['USUARIO_LIMPIO'].apply(mapear_crm_a_agente)
-            
-            # Filtrar solo registros válidos (los que tienen agente)
+            # Filtrar solo registros válidos
             df_crm_clean = df_crm_clean.dropna(subset=['AGENTE_NOMBRE'])
             
             # Crear dataframe de ventas CRM
             ventas_crm = df_crm_clean[['AGENTE_NOMBRE', 'FECHA_SIMPLE', 'USUARIO', 'NOMBRE_USUARIO']].copy()
             ventas_crm['ES_VENTA_CRM'] = True
             
-            st.success(f"✅ Ventas encontradas en CRM: {len(ventas_crm)}")
-            
-            # Mostrar ventas CRM
+            # Mostrar información de las ventas encontradas
             if len(ventas_crm) > 0:
-                st.write("**Ventas identificadas en CRM:**")
-                st.dataframe(ventas_crm[['AGENTE_NOMBRE', 'FECHA_SIMPLE', 'USUARIO']].head(10))
+                st.success(f"✅ Ventas encontradas en CRM: {len(ventas_crm)}")
+                
+                # Mostrar resumen por agente
+                resumen_agentes = ventas_crm.groupby('AGENTE_NOMBRE').size().reset_index(name='VENTAS_CRM')
+                st.write("**Ventas por agente en CRM:**")
+                st.dataframe(resumen_agentes)
+            else:
+                st.warning("⚠️ No se encontraron ventas válidas en CRM")
             
             progress_bar.progress(10)
         
@@ -795,34 +799,77 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
         progress_bar.progress(40)
         
         # ============================================
-        # PASO 5: MARCAR VENTAS DESDE CRM
+        # PASO 5: MARCAR VENTAS DESDE CRM usando NOMBRE_USUARIO
         # ============================================
         # Crear columna de venta
         df_llamadas['Es_Venta'] = False
         df_llamadas['Es_Contacto'] = True
         df_llamadas['Venta_CRM'] = False
         df_llamadas['Validacion_CRM'] = ''
+        df_llamadas['CRM_Usuario'] = ''
+        df_llamadas['CRM_Nombre'] = ''
         
         if len(ventas_crm) > 0:
-            # Crear clave para cruce: agente + fecha
-            ventas_crm['CLAVE'] = ventas_crm['AGENTE_NOMBRE'] + '|' + ventas_crm['FECHA_SIMPLE'].astype(str)
-            df_llamadas['CLAVE'] = df_llamadas['Agente_Nombre'] + '|' + df_llamadas['Fecha_Solo'].astype(str)
+            # Crear conjunto de agentes con ventas en CRM
+            agentes_con_ventas = set(ventas_crm['AGENTE_NOMBRE'].unique())
+            st.info(f"🔍 Agentes con ventas en CRM: {len(agentes_con_ventas)}")
             
-            # Marcar ventas
-            ventas_crm_set = set(ventas_crm['CLAVE'].unique())
-            df_llamadas['Es_Venta'] = df_llamadas['CLAVE'].apply(lambda x: x in ventas_crm_set)
-            df_llamadas['Venta_CRM'] = df_llamadas['CLAVE'].apply(lambda x: x in ventas_crm_set)
+            # Crear diccionario de fechas de ventas por agente
+            ventas_por_agente = {}
+            for _, row in ventas_crm.iterrows():
+                agente = row['AGENTE_NOMBRE']
+                fecha = row['FECHA_SIMPLE']
+                if agente not in ventas_por_agente:
+                    ventas_por_agente[agente] = set()
+                ventas_por_agente[agente].add(fecha)
             
-            # Validación detallada
-            def get_validacion(row):
-                if row['Es_Venta']:
-                    return f"✅ Venta confirmada en CRM para {row['Agente_Nombre']} el {row['Fecha_Solo']}"
-                return "No es venta CRM"
+            # Marcar ventas en llamadas
+            def marcar_venta(row):
+                agente = row['Agente_Nombre']
+                fecha = row['Fecha_Solo']
+                
+                if agente in ventas_por_agente:
+                    if fecha in ventas_por_agente[agente]:
+                        # Buscar información del CRM
+                        info_crm = ventas_crm[
+                            (ventas_crm['AGENTE_NOMBRE'] == agente) & 
+                            (ventas_crm['FECHA_SIMPLE'] == fecha)
+                        ]
+                        
+                        if len(info_crm) > 0:
+                            crm_row = info_crm.iloc[0]
+                            return {
+                                'Es_Venta': True,
+                                'Venta_CRM': True,
+                                'Validacion_CRM': f"✅ Venta confirmada en CRM para {agente} el {fecha}",
+                                'CRM_Usuario': crm_row.get('USUARIO', ''),
+                                'CRM_Nombre': crm_row.get('NOMBRE_USUARIO', '')
+                            }
+                
+                return {
+                    'Es_Venta': False,
+                    'Venta_CRM': False,
+                    'Validacion_CRM': 'No es venta CRM',
+                    'CRM_Usuario': '',
+                    'CRM_Nombre': ''
+                }
             
-            df_llamadas['Validacion_CRM'] = df_llamadas.apply(get_validacion, axis=1)
+            # Aplicar marca de venta
+            resultados = df_llamadas.apply(marcar_venta, axis=1, result_type='expand')
+            df_llamadas['Es_Venta'] = resultados['Es_Venta']
+            df_llamadas['Venta_CRM'] = resultados['Venta_CRM']
+            df_llamadas['Validacion_CRM'] = resultados['Validacion_CRM']
+            df_llamadas['CRM_Usuario'] = resultados['CRM_Usuario']
+            df_llamadas['CRM_Nombre'] = resultados['CRM_Nombre']
             
             ventas_totales = df_llamadas['Es_Venta'].sum()
             st.success(f"✅ Ventas marcadas desde CRM: {ventas_totales}")
+            
+            # Mostrar detalle de ventas encontradas
+            if ventas_totales > 0:
+                st.write("**Ventas identificadas en llamadas:**")
+                ventas_df = df_llamadas[df_llamadas['Es_Venta'] == True][['Agente_Nombre', 'Fecha_Solo', 'CRM_Usuario', 'CRM_Nombre']]
+                st.dataframe(ventas_df)
         else:
             st.warning("⚠️ No se cargaron ventas desde CRM. Todas las llamadas se marcarán como contacto.")
         
@@ -982,7 +1029,7 @@ with col2:
     
     incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
     
-    st.info("💡 Las ventas se identifican automáticamente desde el archivo CRM")
+    st.info("💡 Las ventas se identifican automáticamente desde el archivo CRM usando NOMBRE_USUARIO")
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
@@ -1002,6 +1049,12 @@ if procesar and archivo_llamadas:
                 df_crm = leer_archivo(archivo_crm)
                 if df_crm is not None:
                     st.success(f"✅ Archivo CRM cargado: {len(df_crm):,} registros")
+                    # Mostrar columnas del CRM
+                    st.write("**Columnas del CRM:**", df_crm.columns.tolist())
+                    
+                    # Mostrar ejemplo de NOMBRE_USUARIO
+                    if 'NOMBRE_USUARIO' in df_crm.columns:
+                        st.write("**Ejemplos de NOMBRE_USUARIO:**", df_crm['NOMBRE_USUARIO'].head(5).tolist())
             
             df_tiempos = None
             if archivo_tiempos and incluir_tiempos:
@@ -1248,6 +1301,6 @@ elif procesar and not archivo_llamadas:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
-        Procesador de Llamadas v2.0 - Ventas identificadas desde CRM
+        Procesador de Llamadas v2.0 - Ventas identificadas desde CRM usando NOMBRE_USUARIO
     </div>
 """, unsafe_allow_html=True)
