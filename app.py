@@ -47,103 +47,6 @@ st.markdown("""
 st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1></div>', unsafe_allow_html=True)
 
 # ============================================
-# CLASE VALIDADORA CRM
-# ============================================
-
-class CRMValidator:
-    """Validador de ventas contra archivo CRM"""
-    
-    def __init__(self, crm_df=None):
-        self.crm_df = crm_df
-        self._preprocess_crm()
-    
-    def _preprocess_crm(self):
-        """Preprocesa los datos del CRM"""
-        if self.crm_df is not None and len(self.crm_df) > 0:
-            # Limpiar usuarios: RRS-AFIGUEROA -> BT-CREBECA
-            if 'USUARIO' in self.crm_df.columns:
-                self.crm_df['USUARIO_STR'] = self.crm_df['USUARIO'].astype(str)
-                self.crm_df['USUARIO_LIMPIO'] = self.crm_df['USUARIO_STR'].str.replace('RRS-', 'BT-', regex=False)
-            
-            # Convertir fechas
-            if 'FECHA_REGISTRO' in self.crm_df.columns:
-                try:
-                    self.crm_df['FECHA_REGISTRO'] = pd.to_datetime(self.crm_df['FECHA_REGISTRO'])
-                    self.crm_df['FECHA_SIMPLE'] = self.crm_df['FECHA_REGISTRO'].dt.date
-                except Exception as e:
-                    st.warning(f"Error al convertir fechas en CRM: {e}")
-    
-    def validate_sale(self, agente, fecha_venta, numero_llamado=None, duracion=0):
-        """
-        Valida si una venta existe en CRM
-        Retorna: (es_valida, mensaje, nivel_confianza)
-        """
-        if self.crm_df is None or len(self.crm_df) == 0:
-            return False, "No hay datos CRM cargados", "NULA"
-        
-        # Buscar coincidencias por agente
-        agente_limpio = str(agente).strip()
-        
-        # Intentar mapeo inverso: nombre agente -> usuario CRM
-        usuario_crm = None
-        for key, value in MAPEO_AGENTES.items():
-            if value == agente_limpio:
-                usuario_crm = key
-                break
-        
-        if not usuario_crm:
-            # Intentar coincidencia parcial
-            for key, value in MAPEO_AGENTES.items():
-                if value in agente_limpio or agente_limpio in value:
-                    usuario_crm = key
-                    break
-        
-        if not usuario_crm:
-            return False, f"Agente '{agente_limpio}' no encontrado en mapeo CRM", "NULA"
-        
-        # Buscar en CRM
-        crm_matches = pd.DataFrame()
-        
-        if 'USUARIO_LIMPIO' in self.crm_df.columns:
-            crm_matches = self.crm_df[self.crm_df['USUARIO_LIMPIO'] == usuario_crm]
-        
-        if len(crm_matches) == 0 and 'USUARIO_STR' in self.crm_df.columns:
-            crm_matches = self.crm_df[self.crm_df['USUARIO_STR'].str.contains(usuario_crm.replace('BT-', ''), case=False, na=False)]
-        
-        if len(crm_matches) == 0 and 'USUARIO' in self.crm_df.columns:
-            usuario_orig = usuario_crm.replace('BT-', '')
-            crm_matches = self.crm_df[self.crm_df['USUARIO'].astype(str).str.contains(usuario_orig, case=False, na=False)]
-        
-        if len(crm_matches) == 0:
-            return False, f"Usuario '{usuario_crm}' no encontrado en CRM", "NULA"
-        
-        # Verificar fecha
-        if fecha_venta:
-            try:
-                fecha_venta_dt = pd.to_datetime(fecha_venta).date() if not isinstance(fecha_venta, datetime) else fecha_venta.date()
-                
-                if 'FECHA_SIMPLE' in crm_matches.columns:
-                    crm_fechas = crm_matches['FECHA_SIMPLE'].dropna().unique()
-                else:
-                    crm_fechas = pd.to_datetime(crm_matches['FECHA_REGISTRO']).dt.date.dropna().unique()
-                
-                if fecha_venta_dt in crm_fechas:
-                    return True, f"Venta confirmada en CRM para {usuario_crm} el {fecha_venta_dt}", "ALTA"
-                else:
-                    fechas_crm = sorted(crm_fechas)
-                    if len(fechas_crm) > 0:
-                        for fecha_crm in fechas_crm:
-                            diff = (fecha_venta_dt - fecha_crm).days
-                            if abs(diff) <= 1:
-                                return True, f"Venta probable en CRM (fecha cercana: {fecha_crm})", "MEDIA"
-                    
-                    return False, f"Usuario encontrado pero sin coincidencia de fecha", "BAJA"
-            except Exception as e:
-                return False, f"Error al validar fecha: {str(e)}", "BAJA"
-        
-        return False, "Sin fecha para validar", "BAJA"
-
-# ============================================
 # MAPEO DE AGENTES CON CAMPAÑA Y SITE
 # ============================================
 MAPEO_AGENTES = {
@@ -287,12 +190,10 @@ def convertir_agente(agente):
     agente_str = str(agente).strip()
     agente_upper = agente_str.upper()
     
-    # Buscar coincidencia exacta primero
     for key, value in MAPEO_AGENTES.items():
         if key.upper() == agente_upper:
             return value
     
-    # Buscar coincidencia parcial
     for key, value in MAPEO_AGENTES.items():
         if key.upper() in agente_upper or agente_upper in key.upper():
             return value
@@ -311,7 +212,7 @@ def procesar_fecha(fecha_str):
             fecha_str = fecha_str.replace('a.m.', 'AM').replace('p.m.', 'PM')
             
             formatos = [
-                '%Y-%m-%d %H:%M:%S',  # Tu formato: 2026-08-01 09:03:21
+                '%Y-%m-%d %H:%M:%S',
                 '%d/%m/%Y %I:%M:%S %p',
                 '%d/%m/%Y %I:%M %p',
                 '%d/%m/%Y %H:%M:%S',
@@ -322,8 +223,8 @@ def procesar_fecha(fecha_str):
                 '%m/%d/%Y %I:%M %p',
                 '%d-%m-%Y %I:%M:%S %p',
                 '%d-%m-%Y %I:%M %p',
-                '%Y-%m-%d',  # Solo fecha
-                '%d/%m/%Y',  # Solo fecha
+                '%Y-%m-%d',
+                '%d/%m/%Y',
             ]
             
             for formato in formatos:
@@ -383,14 +284,6 @@ def es_contacto(valor):
     return True
 
 @st.cache_data
-def es_venta(valor):
-    """Determina si un valor es venta"""
-    if pd.isna(valor):
-        return False
-    valor_str = str(valor).upper().strip()
-    return valor_str == 'VENTA'
-
-@st.cache_data
 def leer_archivo(archivo):
     """Lee un archivo Excel o CSV"""
     extension = archivo.name.split('.')[-1].lower()
@@ -414,22 +307,6 @@ def leer_archivo(archivo):
     except Exception as e:
         st.error(f"Error al leer el archivo: {e}")
         return None
-
-@st.cache_data
-def leer_archivo_crm(archivo):
-    """Lee el archivo CRM específicamente"""
-    df = leer_archivo(archivo)
-    
-    if df is not None:
-        columnas_esperadas = ['USUARIO', 'NOMBRE_USUARIO', 'FECHA_REGISTRO']
-        columnas_encontradas = [col for col in columnas_esperadas if col in df.columns]
-        
-        if len(columnas_encontradas) < 3:
-            st.warning(f"El archivo CRM no tiene todas las columnas esperadas. Encontradas: {columnas_encontradas}")
-        else:
-            st.success(f"✅ Archivo CRM cargado: {len(df):,} registros")
-    
-    return df
 
 @st.cache_data
 def limpiar_valor_numerico(valor):
@@ -595,7 +472,6 @@ def procesar_archivo_tiempos(df_tiempos):
                     if pd.isna(valor):
                         continue
                     
-                    # Convertir tiempo HH:MM:SS a minutos
                     if isinstance(valor, str) and ':' in valor:
                         partes = valor.split(':')
                         if len(partes) == 3:
@@ -805,22 +681,59 @@ def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
             return None
 
 @st.cache_data
-def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_tiempos=True, validar_crm=False):
-    """Procesa los datos y genera el reporte detallado y el resumen consolidado"""
+def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_tiempos=True):
+    """Procesa los datos y genera el reporte detallado"""
     
     with st.spinner('Procesando datos...'):
         progress_bar = st.progress(0)
         
-        # 0. Inicializar validador CRM
-        validador = None
-        if validar_crm and df_crm is not None and len(df_crm) > 0:
-            validador = CRMValidator(df_crm)
-            st.success("✅ Validador CRM inicializado")
-            progress_bar.progress(5)
+        # ============================================
+        # PASO 1: Preparar CRM para identificar ventas
+        # ============================================
+        ventas_crm = pd.DataFrame()
+        if df_crm is not None and len(df_crm) > 0:
+            st.info("🔍 Identificando ventas desde CRM...")
+            
+            # Limpiar CRM
+            df_crm_clean = df_crm.copy()
+            
+            # Convertir fechas
+            if 'FECHA_REGISTRO' in df_crm_clean.columns:
+                df_crm_clean['FECHA_REGISTRO'] = pd.to_datetime(df_crm_clean['FECHA_REGISTRO'])
+                df_crm_clean['FECHA_SIMPLE'] = df_crm_clean['FECHA_REGISTRO'].dt.date
+            
+            # Mapear usuario CRM a agente
+            df_crm_clean['USUARIO_LIMPIO'] = df_crm_clean['USUARIO'].astype(str).str.replace('RRS-', 'BT-', regex=False)
+            
+            # Crear columna de agente nombre para cruce
+            def mapear_crm_a_agente(usuario):
+                for key, value in MAPEO_AGENTES.items():
+                    if key == usuario or key in usuario:
+                        return value
+                return None
+            
+            df_crm_clean['AGENTE_NOMBRE'] = df_crm_clean['USUARIO_LIMPIO'].apply(mapear_crm_a_agente)
+            
+            # Filtrar solo registros válidos (los que tienen agente)
+            df_crm_clean = df_crm_clean.dropna(subset=['AGENTE_NOMBRE'])
+            
+            # Crear dataframe de ventas CRM
+            ventas_crm = df_crm_clean[['AGENTE_NOMBRE', 'FECHA_SIMPLE', 'USUARIO', 'NOMBRE_USUARIO']].copy()
+            ventas_crm['ES_VENTA_CRM'] = True
+            
+            st.success(f"✅ Ventas encontradas en CRM: {len(ventas_crm)}")
+            
+            # Mostrar ventas CRM
+            if len(ventas_crm) > 0:
+                st.write("**Ventas identificadas en CRM:**")
+                st.dataframe(ventas_crm[['AGENTE_NOMBRE', 'FECHA_SIMPLE', 'USUARIO']].head(10))
+            
+            progress_bar.progress(10)
         
-        # 1. Identificar columnas - CORREGIDO para tu archivo
+        # ============================================
+        # PASO 2: Identificar columnas en llamadas
+        # ============================================
         columnas = df_llamadas.columns.tolist()
-        st.write("Columnas encontradas:", columnas)  # Debug
         
         # Buscar columna de fecha
         fecha_col = None
@@ -841,23 +754,15 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
                 agente_col = col
                 break
         
-        # Buscar columna de disposición
-        disposition_col = None
-        for col in columnas:
-            col_lower = str(col).lower()
-            if 'disposition' in col_lower or 'disposition__pospago_bait' in col_lower:
-                disposition_col = col
-                break
-        
-        st.write(f"Fecha col: {fecha_col}, Agente col: {agente_col}, Disposition col: {disposition_col}")  # Debug
-        
         if not fecha_col or not agente_col:
             st.error(f"No se encontraron las columnas necesarias. Fecha: {fecha_col}, Agente: {agente_col}")
             return None, None
         
-        progress_bar.progress(10)
+        progress_bar.progress(20)
         
-        # 2. Procesar fechas
+        # ============================================
+        # PASO 3: Procesar fechas
+        # ============================================
         df_llamadas['Fecha_Procesada'] = df_llamadas[fecha_col].apply(procesar_fecha)
         df_llamadas = df_llamadas.dropna(subset=['Fecha_Procesada'])
         
@@ -876,7 +781,9 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
         
         progress_bar.progress(30)
         
-        # 3. Convertir agentes
+        # ============================================
+        # PASO 4: Convertir agentes
+        # ============================================
         df_llamadas['Agente_Nombre'] = df_llamadas[agente_col].apply(convertir_agente)
         df_llamadas = df_llamadas.dropna(subset=['Agente_Nombre'])
         df_llamadas['Agente_Nombre'] = df_llamadas['Agente_Nombre'].astype(str)
@@ -885,52 +792,56 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
             st.error("No se pudieron convertir agentes válidos.")
             return None, None
         
+        progress_bar.progress(40)
+        
+        # ============================================
+        # PASO 5: MARCAR VENTAS DESDE CRM
+        # ============================================
+        # Crear columna de venta
+        df_llamadas['Es_Venta'] = False
+        df_llamadas['Es_Contacto'] = True
+        df_llamadas['Venta_CRM'] = False
+        df_llamadas['Validacion_CRM'] = ''
+        
+        if len(ventas_crm) > 0:
+            # Crear clave para cruce: agente + fecha
+            ventas_crm['CLAVE'] = ventas_crm['AGENTE_NOMBRE'] + '|' + ventas_crm['FECHA_SIMPLE'].astype(str)
+            df_llamadas['CLAVE'] = df_llamadas['Agente_Nombre'] + '|' + df_llamadas['Fecha_Solo'].astype(str)
+            
+            # Marcar ventas
+            ventas_crm_set = set(ventas_crm['CLAVE'].unique())
+            df_llamadas['Es_Venta'] = df_llamadas['CLAVE'].apply(lambda x: x in ventas_crm_set)
+            df_llamadas['Venta_CRM'] = df_llamadas['CLAVE'].apply(lambda x: x in ventas_crm_set)
+            
+            # Validación detallada
+            def get_validacion(row):
+                if row['Es_Venta']:
+                    return f"✅ Venta confirmada en CRM para {row['Agente_Nombre']} el {row['Fecha_Solo']}"
+                return "No es venta CRM"
+            
+            df_llamadas['Validacion_CRM'] = df_llamadas.apply(get_validacion, axis=1)
+            
+            ventas_totales = df_llamadas['Es_Venta'].sum()
+            st.success(f"✅ Ventas marcadas desde CRM: {ventas_totales}")
+        else:
+            st.warning("⚠️ No se cargaron ventas desde CRM. Todas las llamadas se marcarán como contacto.")
+        
         progress_bar.progress(50)
         
-        # 4. Agregar columnas de Campaña y SITE
+        # ============================================
+        # PASO 6: Agregar Campaña y SITE
+        # ============================================
         df_llamadas['Campaña'] = df_llamadas['Agente_Nombre'].apply(obtener_campana)
         df_llamadas['SITE'] = df_llamadas['Agente_Nombre'].apply(obtener_site)
         
-        # 5. Clasificar contactos y ventas
-        if disposition_col:
-            # Usar la columna de disposición para clasificar
-            df_llamadas['Es_Contacto'] = df_llamadas[disposition_col].apply(es_contacto)
-            df_llamadas['Es_Venta'] = df_llamadas[disposition_col].apply(es_venta)
-        else:
-            # Si no hay disposición, marcar todas como contacto pero no venta
-            df_llamadas['Es_Contacto'] = True
-            df_llamadas['Es_Venta'] = False
-        
         progress_bar.progress(60)
         
-        # 6. Validar ventas contra CRM
-        if validar_crm and validador:
-            st.info("🔍 Validando ventas contra CRM...")
-            
-            def validar_fila(row):
-                if row['Es_Venta']:
-                    es_valida, mensaje, nivel = validador.validate_sale(
-                        row['Agente_Nombre'],
-                        row['Fecha_Solo'],
-                        row.get('Número llamado', None),
-                        row.get('Duración (segundos)', 0)
-                    )
-                    return f"{'✅' if es_valida else '❌'} {mensaje}"
-                return "No es venta"
-            
-            df_llamadas['Validacion_CRM'] = df_llamadas.apply(validar_fila, axis=1)
-            df_llamadas['Venta_Confirmada'] = df_llamadas['Validacion_CRM'].str.contains('✅', na=False)
-            
-            total_ventas = df_llamadas['Es_Venta'].sum()
-            ventas_confirmadas = df_llamadas[df_llamadas['Es_Venta'] == True]['Venta_Confirmada'].sum()
-            
-            st.success(f"✅ Ventas validadas: {ventas_confirmadas}/{total_ventas} confirmadas en CRM")
-            
-            progress_bar.progress(70)
-        
-        # 7. Agrupar por fecha, agente y rango de hora
+        # ============================================
+        # PASO 7: Agrupar datos
+        # ============================================
         fechas_disponibles = sorted(df_llamadas['Fecha_Solo'].unique())
         
+        # Agrupar por fecha, agente y rango
         agrupado = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Campaña', 'SITE', 'Rango_Hora']).agg({
             'Es_Contacto': ['count', 'sum'],
             'Es_Venta': 'sum'
@@ -939,21 +850,11 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
         agrupado.columns = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
         agrupado['AGENTE'] = agrupado['AGENTE'].astype(str)
         
-        # 8. Agregar métricas de validación
-        if validar_crm and validador:
-            ventas_confirmadas_por_grupo = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Rango_Hora']).agg({
-                'Venta_Confirmada': 'sum'
-            }).reset_index()
-            ventas_confirmadas_por_grupo.columns = ['FECHA', 'AGENTE', 'Rango_Hora', 'Ventas_Confirmadas']
-            
-            agrupado = agrupado.merge(ventas_confirmadas_por_grupo, on=['FECHA', 'AGENTE', 'Rango_Hora'], how='left')
-            agrupado['Ventas_Confirmadas'] = agrupado['Ventas_Confirmadas'].fillna(0).astype(int)
-            agrupado['%_CRM'] = (agrupado['Ventas_Confirmadas'] / agrupado['Ventas'] * 100).round(2)
-            agrupado['%_CRM'] = agrupado['%_CRM'].fillna(0).replace([np.inf, -np.inf], 0)
+        progress_bar.progress(70)
         
-        progress_bar.progress(80)
-        
-        # 9. Crear reporte detallado
+        # ============================================
+        # PASO 8: Crear reporte detallado
+        # ============================================
         reporte_list = []
         
         for fecha in fechas_disponibles:
@@ -987,18 +888,11 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
                             'Contacto': 0,
                             'Ventas': 0
                         })
-                        if validar_crm:
-                            row['Ventas_Confirmadas'] = 0
-                            row['%_CRM'] = 0
                     
                     row['Llamadas'] = row['Registros']
                     row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
                     row['Total conexión'] = 0.0
                     row['VPH'] = 0.0
-                    
-                    if validar_crm and 'Ventas_Confirmadas' not in row:
-                        row['Ventas_Confirmadas'] = 0
-                        row['%_CRM'] = 0
                     
                     reporte_list.append(row)
         
@@ -1014,13 +908,11 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
         reporte_detalle['SITE'] = reporte_detalle['SITE'].astype(str)
         reporte_detalle['Rango_Hora'] = reporte_detalle['Rango_Hora'].astype(str)
         
-        if validar_crm and 'Ventas_Confirmadas' in reporte_detalle.columns:
-            reporte_detalle['Ventas_Confirmadas'] = reporte_detalle['Ventas_Confirmadas'].fillna(0).astype(int)
-            reporte_detalle['%_CRM'] = reporte_detalle['%_CRM'].fillna(0).round(2)
+        progress_bar.progress(80)
         
-        progress_bar.progress(90)
-        
-        # 10. Procesar tiempos de conexión
+        # ============================================
+        # PASO 9: Procesar tiempos de conexión
+        # ============================================
         if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
                 tiempos_dict = procesar_archivo_tiempos(df_tiempos)
@@ -1039,24 +931,19 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_crm=None, incluir_
             except Exception as e:
                 st.warning(f"Error al procesar tiempos: {e}. Continuando sin tiempos.")
         
-        progress_bar.progress(95)
+        progress_bar.progress(90)
         
-        # 11. Redondear y reordenar
+        # ============================================
+        # PASO 10: Formatear resultado final
+        # ============================================
         reporte_detalle['Conversión'] = reporte_detalle['Conversión'].round(2)
         reporte_detalle['VPH'] = reporte_detalle['VPH'].round(2)
         reporte_detalle['Total conexión'] = reporte_detalle['Total conexión'].round(2)
         
-        columnas_base = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
+        columnas_orden = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
+        reporte_detalle = reporte_detalle[columnas_orden]
         
-        if validar_crm and 'Ventas_Confirmadas' in reporte_detalle.columns:
-            columnas_crm = ['Ventas_Confirmadas', '%_CRM']
-            columnas_detalle = columnas_base[:10] + columnas_crm + columnas_base[10:]
-        else:
-            columnas_detalle = columnas_base
-        
-        reporte_detalle = reporte_detalle[columnas_detalle]
-        
-        # 12. Generar resumen consolidado
+        # Generar resumen consolidado
         reporte_resumen = generar_resumen_consolidado(reporte_detalle)
         
         progress_bar.progress(100)
@@ -1078,16 +965,16 @@ with col1:
         help="Sube el archivo con los datos de las llamadas"
     )
     
+    archivo_crm = st.file_uploader(
+        "📋 Archivo CRM (Opcional - Para identificar ventas)",
+        type=['xlsx', 'xls', 'csv'],
+        help="Sube el archivo de CRM para identificar qué llamadas fueron ventas"
+    )
+    
     archivo_tiempos = st.file_uploader(
         "Archivo de tiempos de agentes (Opcional)",
         type=['xlsx', 'xls', 'csv'],
         help="Sube el archivo con los tiempos de conexión por agente y hora"
-    )
-    
-    archivo_crm = st.file_uploader(
-        "📋 Archivo CRM (Opcional - Para validación de ventas)",
-        type=['xlsx', 'xls', 'csv'],
-        help="Sube el archivo de CRM para validar que las ventas sean reales"
     )
 
 with col2:
@@ -1095,11 +982,7 @@ with col2:
     
     incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
     
-    validar_crm = st.checkbox("✅ Validar ventas contra CRM", value=False, 
-                              help="Marca para validar que las ventas existan en el CRM")
-    
-    if validar_crm and not archivo_crm:
-        st.warning("⚠️ Necesitas cargar el archivo CRM para validar")
+    st.info("💡 Las ventas se identifican automáticamente desde el archivo CRM")
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
@@ -1114,22 +997,23 @@ if procesar and archivo_llamadas:
         if df_llamadas is not None and len(df_llamadas) > 0:
             st.success(f"✅ Archivo de llamadas cargado: {len(df_llamadas):,} registros")
             
+            df_crm = None
+            if archivo_crm:
+                df_crm = leer_archivo(archivo_crm)
+                if df_crm is not None:
+                    st.success(f"✅ Archivo CRM cargado: {len(df_crm):,} registros")
+            
             df_tiempos = None
             if archivo_tiempos and incluir_tiempos:
                 df_tiempos = leer_archivo(archivo_tiempos)
                 if df_tiempos is not None:
                     st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
             
-            df_crm = None
-            if archivo_crm and validar_crm:
-                df_crm = leer_archivo_crm(archivo_crm)
-            
             reporte_detalle, reporte_resumen = procesar_datos_completos(
                 df_llamadas, 
-                df_tiempos, 
                 df_crm, 
-                incluir_tiempos, 
-                validar_crm
+                df_tiempos, 
+                incluir_tiempos
             )
             
             if reporte_detalle is not None and len(reporte_detalle) > 0:
@@ -1160,26 +1044,6 @@ if procesar and archivo_llamadas:
                 with col6:
                     conversion = (total_ventas / reporte_detalle['Contacto'].sum() * 100) if reporte_detalle['Contacto'].sum() > 0 else 0
                     st.metric("Conversión", f"{conversion:.2f}%")
-                
-                # Mostrar estadísticas de validación CRM
-                if validar_crm and 'Ventas_Confirmadas' in reporte_detalle.columns:
-                    st.subheader("🔍 Validación CRM")
-                    
-                    total_ventas = reporte_detalle['Ventas'].sum()
-                    ventas_confirmadas = reporte_detalle['Ventas_Confirmadas'].sum()
-                    
-                    col_crm1, col_crm2, col_crm3 = st.columns(3)
-                    with col_crm1:
-                        st.metric("Ventas Totales", f"{total_ventas:,}")
-                    with col_crm2:
-                        st.metric("Ventas Confirmadas", f"{ventas_confirmadas:,}")
-                    with col_crm3:
-                        pct_crm = (ventas_confirmadas / total_ventas * 100) if total_ventas > 0 else 0
-                        st.metric("Tasa de Confirmación", f"{pct_crm:.1f}%")
-                    
-                    ventas_no_confirmadas = total_ventas - ventas_confirmadas
-                    if ventas_no_confirmadas > 0:
-                        st.warning(f"⚠️ {ventas_no_confirmadas} ventas NO confirmadas en CRM. Revisa el detalle.")
                 
                 # ============================================
                 # RESUMEN POR CAMPAÑA Y SITE
@@ -1258,7 +1122,6 @@ if procesar and archivo_llamadas:
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("✅ HC = Número de agentes que trabajaron en esa hora\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión (mínimo 15 minutos de conexión)")
                     
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha_resumen = st.selectbox("📅 Filtrar resumen por fecha:", fechas_opciones, key="filtro_resumen")
@@ -1317,30 +1180,24 @@ if procesar and archivo_llamadas:
                 if filtro_campana != 'Todas':
                     detalle_filtrado = detalle_filtrado[detalle_filtrado['CAMPAÑA'] == filtro_campana]
                 
-                column_config = {
-                    "FECHA": st.column_config.TextColumn("Fecha"),
-                    "AGENTE": st.column_config.TextColumn("Agente"),
-                    "CAMPAÑA": st.column_config.TextColumn("Campaña"),
-                    "SITE": st.column_config.TextColumn("SITE"),
-                    "Rango_Hora": st.column_config.TextColumn("Hora"),
-                    "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
-                    "Registros": st.column_config.NumberColumn("Registros"),
-                    "Llamadas": st.column_config.NumberColumn("Llamadas"),
-                    "Contacto": st.column_config.NumberColumn("Contacto"),
-                    "Ventas": st.column_config.NumberColumn("Ventas"),
-                    "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
-                    "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
-                }
-                
-                if validar_crm and 'Ventas_Confirmadas' in detalle_filtrado.columns:
-                    column_config["Ventas_Confirmadas"] = st.column_config.NumberColumn("Ventas CRM")
-                    column_config["%_CRM"] = st.column_config.NumberColumn("% CRM", format="%.1f%%")
-                
                 st.dataframe(
                     detalle_filtrado,
                     use_container_width=True,
                     hide_index=True,
-                    column_config=column_config
+                    column_config={
+                        "FECHA": st.column_config.TextColumn("Fecha"),
+                        "AGENTE": st.column_config.TextColumn("Agente"),
+                        "CAMPAÑA": st.column_config.TextColumn("Campaña"),
+                        "SITE": st.column_config.TextColumn("SITE"),
+                        "Rango_Hora": st.column_config.TextColumn("Hora"),
+                        "Total conexión": st.column_config.NumberColumn("Total Conexión", format="%.2f"),
+                        "Registros": st.column_config.NumberColumn("Registros"),
+                        "Llamadas": st.column_config.NumberColumn("Llamadas"),
+                        "Contacto": st.column_config.NumberColumn("Contacto"),
+                        "Ventas": st.column_config.NumberColumn("Ventas"),
+                        "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
+                        "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
+                    }
                 )
                 
                 # ============================================
@@ -1391,6 +1248,6 @@ elif procesar and not archivo_llamadas:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
-        Procesador de Llamadas v2.0 - Con validación CRM
+        Procesador de Llamadas v2.0 - Ventas identificadas desde CRM
     </div>
 """, unsafe_allow_html=True)
