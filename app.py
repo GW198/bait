@@ -546,7 +546,6 @@ def generar_resumen_consolidado(reporte_detalle):
     df = reporte_detalle.copy()
     df['Tiene_Actividad'] = (df['Registros'] > 0) | (df['Contacto'] > 0) | (df['Ventas'] > 0)
     
-    # Agrupar por FECHA y Rango_Hora (estos ya vienen del CRM para ventas)
     resumen = df.groupby(['FECHA', 'Rango_Hora']).agg({
         'AGENTE': lambda x: x[df.loc[x.index, 'Tiene_Actividad']].nunique(),
         'Total conexión': lambda x: (x / df.loc[x.index, 'AGENTE'].nunique()).mean() if df.loc[x.index, 'AGENTE'].nunique() > 0 else 0,
@@ -691,7 +690,7 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
         # ============================================
         # PASO 1: Preparar CRM para identificar ventas
         # ============================================
-        ventas_crm = pd.DataFrame()
+        ventas_crm = {}
         if df_crm is not None and len(df_crm) > 0:
             st.info("🔍 Identificando ventas desde CRM...")
             
@@ -732,19 +731,51 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
             # Filtrar solo registros válidos
             df_crm_clean = df_crm_clean.dropna(subset=['AGENTE_NOMBRE'])
             
-            # Crear dataframe de ventas CRM
-            ventas_crm = df_crm_clean[['AGENTE_NOMBRE', 'FECHA_SIMPLE', 'RANGO_VENTA', 'USUARIO', 'NOMBRE_USUARIO', 'HORA_REGISTRO', 'FECHA_REGISTRO']].copy()
-            ventas_crm['ES_VENTA_CRM'] = True
+            # Crear diccionario de ventas CRM sin duplicar
+            # Clave: (AGENTE_NOMBRE, FECHA_SIMPLE, RANGO_VENTA)
+            for _, row in df_crm_clean.iterrows():
+                agente = row['AGENTE_NOMBRE']
+                fecha = row['FECHA_SIMPLE']
+                rango = row.get('RANGO_VENTA', '')
+                hora = row.get('HORA_REGISTRO', '')
+                fecha_completa = row.get('FECHA_REGISTRO', '')
+                usuario = row.get('USUARIO', '')
+                nombre = row.get('NOMBRE_USUARIO', '')
+                
+                # Usar una clave única para evitar duplicados
+                key = (agente, fecha, rango)
+                
+                if key not in ventas_crm:
+                    ventas_crm[key] = {
+                        'agente': agente,
+                        'fecha': fecha,
+                        'rango': rango,
+                        'hora': hora,
+                        'fecha_completa': fecha_completa,
+                        'usuario': usuario,
+                        'nombre': nombre,
+                        'cantidad': 1  # Una venta por registro CRM
+                    }
+                else:
+                    # Si ya existe, incrementar contador
+                    ventas_crm[key]['cantidad'] += 1
+            
+            st.success(f"✅ Ventas únicas encontradas en CRM: {len(ventas_crm)}")
             
             if len(ventas_crm) > 0:
-                st.success(f"✅ Ventas encontradas en CRM: {len(ventas_crm)}")
-                
-                # Mostrar resumen por agente
-                resumen_agentes = ventas_crm.groupby('AGENTE_NOMBRE').size().reset_index(name='VENTAS_CRM')
-                st.write("**Ventas por agente en CRM:**")
-                st.dataframe(resumen_agentes)
-            else:
-                st.warning("⚠️ No se encontraron ventas válidas en CRM")
+                # Mostrar resumen
+                df_ventas_resumen = pd.DataFrame([
+                    {
+                        'Agente': v['agente'],
+                        'Fecha': v['fecha'],
+                        'Rango': v['rango'],
+                        'Hora': v['hora'],
+                        'Cantidad': v['cantidad']
+                    }
+                    for v in ventas_crm.values()
+                ])
+                st.write("**Ventas únicas del CRM:**")
+                st.dataframe(df_ventas_resumen)
             
             progress_bar.progress(10)
         
@@ -813,111 +844,64 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
         progress_bar.progress(40)
         
         # ============================================
-        # PASO 5: MARCAR VENTAS DESDE CRM
-        # Crear un registro separado para cada venta del CRM
-        # ============================================
-        ventas_para_reporte = []
-        
-        if len(ventas_crm) > 0:
-            st.info("🔍 Procesando ventas del CRM...")
-            
-            # Agrupar ventas por agente y fecha
-            for _, venta in ventas_crm.iterrows():
-                agente = venta['AGENTE_NOMBRE']
-                fecha_crm = venta['FECHA_SIMPLE']
-                rango_crm = venta.get('RANGO_VENTA', '')
-                hora_crm = venta.get('HORA_REGISTRO', '')
-                fecha_completa = venta.get('FECHA_REGISTRO', '')
-                usuario = venta.get('USUARIO', '')
-                nombre = venta.get('NOMBRE_USUARIO', '')
-                
-                # Verificar si este agente tiene llamadas en esa fecha
-                llamadas_agente = df_llamadas[
-                    (df_llamadas['Agente_Nombre'] == agente) &
-                    (df_llamadas['Fecha_Solo'] == fecha_crm)
-                ]
-                
-                if len(llamadas_agente) > 0:
-                    # Hay llamadas, marcar como venta
-                    for _, llamada in llamadas_agente.iterrows():
-                        ventas_para_reporte.append({
-                            'Agente_Nombre': agente,
-                            'Fecha_CRM': fecha_crm,
-                            'Rango_CRM': rango_crm,
-                            'Hora_CRM': hora_crm,
-                            'Fecha_Completa_CRM': fecha_completa,
-                            'Usuario_CRM': usuario,
-                            'Nombre_CRM': nombre,
-                            'Es_Venta': True,
-                            'Campaña': obtener_campana(agente),
-                            'SITE': obtener_site(agente),
-                            'Fecha_Llamada': llamada['Fecha_Solo'],
-                            'Rango_Llamada': llamada['Rango_Hora'],
-                            'Registros': 1
-                        })
-            
-            st.success(f"✅ Ventas procesadas: {len(ventas_para_reporte)}")
-            
-            # Crear DataFrame de ventas
-            if len(ventas_para_reporte) > 0:
-                df_ventas = pd.DataFrame(ventas_para_reporte)
-                st.write("**Ventas procesadas (con fecha y hora del CRM):**")
-                st.dataframe(df_ventas[['Agente_Nombre', 'Fecha_CRM', 'Rango_CRM', 'Hora_CRM']])
-        
-        progress_bar.progress(50)
-        
-        # ============================================
-        # PASO 6: Crear reporte detallado con fecha y hora del CRM
+        # PASO 5: Crear reporte detallado
         # ============================================
         
-        # Obtener todas las fechas del CRM donde hay ventas
-        fechas_crm = set()
-        agentes_crm = set()
-        
-        if len(ventas_para_reporte) > 0:
-            for v in ventas_para_reporte:
-                fechas_crm.add(v['Fecha_CRM'])
-                agentes_crm.add(v['Agente_Nombre'])
-        
-        # También incluir fechas de llamadas para agentes sin ventas
+        # Obtener todas las fechas y agentes
         fechas_llamadas = set(df_llamadas['Fecha_Solo'].unique())
         agentes_llamadas = set(df_llamadas['Agente_Nombre'].unique())
         
-        # Unir fechas
-        todas_fechas = fechas_crm.union(fechas_llamadas)
-        todos_agentes = agentes_crm.union(agentes_llamadas)
+        # Obtener fechas y agentes del CRM
+        fechas_crm = set([v['fecha'] for v in ventas_crm.values()])
+        agentes_crm = set([v['agente'] for v in ventas_crm.values()])
+        
+        # Unir todas
+        todas_fechas = fechas_llamadas.union(fechas_crm)
+        todos_agentes = agentes_llamadas.union(agentes_crm)
         
         reporte_list = []
+        ventas_agregadas = set()  # Para evitar duplicar ventas
         
         # Para cada agente y fecha
-        for agente in todos_agentes:
+        for agente in sorted(todos_agentes):
             campana = obtener_campana(agente)
             site = obtener_site(agente)
             
-            for fecha in todas_fechas:
-                # Verificar si es una fecha de CRM para este agente
-                ventas_agente_fecha = [v for v in ventas_para_reporte if v['Agente_Nombre'] == agente and v['Fecha_CRM'] == fecha]
-                tiene_venta_crm = len(ventas_agente_fecha) > 0
+            for fecha in sorted(todas_fechas):
+                # Verificar si hay ventas CRM para este agente y fecha
+                ventas_agente_fecha = [
+                    v for v in ventas_crm.values() 
+                    if v['agente'] == agente and v['fecha'] == fecha
+                ]
                 
-                # Si tiene venta CRM, usar el rango del CRM
-                if tiene_venta_crm:
-                    rangos_venta = set([v['Rango_CRM'] for v in ventas_agente_fecha if v['Rango_CRM']])
-                    if not rangos_venta:
-                        rangos_venta = {'No Asignado'}
+                # Crear un conjunto de rangos con ventas
+                rangos_con_ventas = set()
+                for v in ventas_agente_fecha:
+                    if v['rango']:
+                        rangos_con_ventas.add(v['rango'])
+                
+                # 1. Primero, agregar los rangos con ventas (usando la fecha y rango del CRM)
+                for rango in rangos_con_ventas:
+                    # Buscar llamadas en este rango para este agente y fecha
+                    llamadas_rango = df_llamadas[
+                        (df_llamadas['Agente_Nombre'] == agente) &
+                        (df_llamadas['Fecha_Solo'] == fecha) &
+                        (df_llamadas['Rango_Hora'] == rango)
+                    ]
                     
-                    for rango in rangos_venta:
-                        # Contar ventas para este rango
-                        ventas_count = len([v for v in ventas_agente_fecha if v['Rango_CRM'] == rango])
-                        
-                        # Buscar llamadas en este rango
-                        llamadas_rango = df_llamadas[
-                            (df_llamadas['Agente_Nombre'] == agente) &
-                            (df_llamadas['Fecha_Solo'] == fecha) &
-                            (df_llamadas['Rango_Hora'] == rango)
-                        ]
-                        
-                        registros = len(llamadas_rango) if len(llamadas_rango) > 0 else 1
-                        contactos = len(llamadas_rango) if len(llamadas_rango) > 0 else 0
+                    registros = len(llamadas_rango)
+                    contactos = len(llamadas_rango)
+                    
+                    # Contar ventas para este rango (una por cada registro CRM)
+                    ventas_count = sum([
+                        v['cantidad'] for v in ventas_agente_fecha 
+                        if v['rango'] == rango
+                    ])
+                    
+                    # Crear clave única para evitar duplicados
+                    clave = (agente, fecha, rango)
+                    if clave not in ventas_agregadas:
+                        ventas_agregadas.add(clave)
                         
                         reporte_list.append({
                             'FECHA': fecha,
@@ -926,37 +910,41 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
                             'SITE': site,
                             'Rango_Hora': rango,
                             'Total conexión': 0.0,
-                            'Registros': registros,
-                            'Llamadas': registros,
-                            'Contacto': contactos,
+                            'Registros': registros if registros > 0 else 0,
+                            'Llamadas': registros if registros > 0 else 0,
+                            'Contacto': contactos if contactos > 0 else 0,
                             'Ventas': ventas_count,
                             'Conversión': (ventas_count / contactos * 100) if contactos > 0 else 0,
                             'VPH': 0.0
                         })
-                else:
-                    # No tiene venta CRM, usar rangos de llamadas
-                    for rango in RANGOS_HORA:
-                        llamadas_rango = df_llamadas[
-                            (df_llamadas['Agente_Nombre'] == agente) &
-                            (df_llamadas['Fecha_Solo'] == fecha) &
-                            (df_llamadas['Rango_Hora'] == rango)
-                        ]
-                        
-                        if len(llamadas_rango) > 0:
-                            reporte_list.append({
-                                'FECHA': fecha,
-                                'AGENTE': agente,
-                                'CAMPAÑA': campana,
-                                'SITE': site,
-                                'Rango_Hora': rango,
-                                'Total conexión': 0.0,
-                                'Registros': len(llamadas_rango),
-                                'Llamadas': len(llamadas_rango),
-                                'Contacto': len(llamadas_rango),
-                                'Ventas': 0,
-                                'Conversión': 0,
-                                'VPH': 0.0
-                            })
+                
+                # 2. Luego, agregar los rangos de llamadas que NO tienen ventas
+                for rango in RANGOS_HORA:
+                    # Verificar si este rango ya tiene ventas
+                    if rango in rangos_con_ventas:
+                        continue
+                    
+                    llamadas_rango = df_llamadas[
+                        (df_llamadas['Agente_Nombre'] == agente) &
+                        (df_llamadas['Fecha_Solo'] == fecha) &
+                        (df_llamadas['Rango_Hora'] == rango)
+                    ]
+                    
+                    if len(llamadas_rango) > 0:
+                        reporte_list.append({
+                            'FECHA': fecha,
+                            'AGENTE': agente,
+                            'CAMPAÑA': campana,
+                            'SITE': site,
+                            'Rango_Hora': rango,
+                            'Total conexión': 0.0,
+                            'Registros': len(llamadas_rango),
+                            'Llamadas': len(llamadas_rango),
+                            'Contacto': len(llamadas_rango),
+                            'Ventas': 0,
+                            'Conversión': 0,
+                            'VPH': 0.0
+                        })
         
         reporte_detalle = pd.DataFrame(reporte_list)
         
@@ -967,7 +955,7 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
         progress_bar.progress(80)
         
         # ============================================
-        # PASO 7: Procesar tiempos de conexión
+        # PASO 6: Procesar tiempos de conexión
         # ============================================
         if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
@@ -990,7 +978,7 @@ def procesar_datos_completos(df_llamadas, df_crm=None, df_tiempos=None, incluir_
         progress_bar.progress(90)
         
         # ============================================
-        # PASO 8: Formatear resultado final
+        # PASO 7: Formatear resultado final
         # ============================================
         reporte_detalle['FECHA'] = pd.to_datetime(reporte_detalle['FECHA']).dt.date
         reporte_detalle['AGENTE'] = reporte_detalle['AGENTE'].astype(str)
@@ -1310,6 +1298,6 @@ elif procesar and not archivo_llamadas:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #666; font-size: 12px;">
-        Procesador de Llamadas v2.0 - Ventas reportadas con fecha y hora del CRM
+        Procesador de Llamadas v2.0 - Ventas reportadas con fecha y hora del CRM (sin duplicar)
     </div>
 """, unsafe_allow_html=True)
