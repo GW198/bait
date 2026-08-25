@@ -277,6 +277,14 @@ def es_contacto(valor):
     return True
 
 @st.cache_data
+def es_venta(valor):
+    """Determina si un valor es venta"""
+    if pd.isna(valor):
+        return False
+    valor_str = str(valor).upper().strip()
+    return valor_str == 'VENTA'
+
+@st.cache_data
 def leer_archivo(archivo):
     """Lee un archivo Excel o CSV"""
     extension = archivo.name.split('.')[-1].lower()
@@ -533,145 +541,6 @@ def calcular_vph(ventas, horas_conexion, min_horas=0.25):
     vph = ventas / horas_conexion
     return round(vph, 2)
 
-def procesar_reporte_portabilidad(df_portabilidad):
-    """
-    Procesa el archivo de reporte de portabilidad para contar las ventas por agente.
-    
-    El archivo tiene:
-    - Columna B (índice 1): Nombre del agente
-    - Columna C (índice 2): Fecha
-    - Columna D (índice 3): Hora
-    
-    Retorna un diccionario con las ventas por agente, fecha y rango de hora
-    """
-    ventas_dict = {}
-    
-    if df_portabilidad is None or len(df_portabilidad) == 0:
-        return ventas_dict
-    
-    # Identificar las columnas por posición (0-indexed)
-    # Columna B = índice 1, Columna C = índice 2, Columna D = índice 3
-    columnas = df_portabilidad.columns.tolist()
-    
-    if len(columnas) < 4:
-        st.error("El archivo de portabilidad debe tener al menos 4 columnas (A, B, C, D)")
-        return ventas_dict
-    
-    col_nombre = columnas[1]  # Columna B
-    col_fecha = columnas[2]   # Columna C
-    col_hora = columnas[3]    # Columna D
-    
-    st.info(f"📋 Procesando reporte de ventas: Columna nombre = '{col_nombre}', Fecha = '{col_fecha}', Hora = '{col_hora}'")
-    
-    # Procesar cada fila del archivo de portabilidad
-    for idx, row in df_portabilidad.iterrows():
-        try:
-            # Obtener el nombre del agente
-            nombre_agente = str(row[col_nombre]).strip() if pd.notna(row[col_nombre]) else ""
-            
-            if not nombre_agente:
-                continue
-            
-            # Intentar convertir el nombre a formato estándar (puede venir en diferentes formatos)
-            nombre_convertido = None
-            
-            # Buscar en el mapeo de agentes (comparación flexible)
-            for key, value in MAPEO_AGENTES.items():
-                # Buscar coincidencia parcial (nombre puede estar en cualquier orden)
-                nombre_limpio = nombre_agente.lower().replace('  ', ' ').strip()
-                nombre_mapeado = value.lower().replace('  ', ' ').strip()
-                
-                # Si el nombre del agente aparece en el nombre mapeado o viceversa
-                if (nombre_limpio in nombre_mapeado) or (nombre_mapeado in nombre_limpio):
-                    nombre_convertido = value
-                    break
-                
-                # Buscar por apellidos (si el nombre viene como "Apellido, Nombre")
-                partes = nombre_agente.split(',')
-                if len(partes) == 2:
-                    apellido = partes[0].strip().lower()
-                    nombre = partes[1].strip().lower()
-                    nombre_completo = f"{nombre} {apellido}".strip()
-                    
-                    # Verificar si coincide con el nombre mapeado
-                    if nombre_completo.lower() in nombre_mapeado or nombre_mapeado in nombre_completo.lower():
-                        nombre_convertido = value
-                        break
-                
-                # Buscar por coincidencia de apellidos
-                apellidos_agente = set(nombre_agente.lower().split())
-                apellidos_mapeado = set(value.lower().split())
-                
-                # Si hay al menos 2 palabras en común, considerarlo coincidencia
-                if len(apellidos_agente.intersection(apellidos_mapeado)) >= 2:
-                    nombre_convertido = value
-                    break
-            
-            # Si no se encontró, intentar con el nombre original
-            if not nombre_convertido:
-                if nombre_agente in MAPEO_AGENTES.values():
-                    nombre_convertido = nombre_agente
-            
-            if not nombre_convertido:
-                continue
-            
-            # Obtener fecha
-            fecha_str = str(row[col_fecha]).strip() if pd.notna(row[col_fecha]) else ""
-            if not fecha_str:
-                continue
-            
-            fecha_procesada = procesar_fecha(fecha_str)
-            if fecha_procesada is None:
-                continue
-            
-            fecha_solo = fecha_procesada.date()
-            
-            # Obtener hora
-            hora_str = str(row[col_hora]).strip() if pd.notna(row[col_hora]) else ""
-            hora_procesada = None
-            
-            if hora_str:
-                # Intentar procesar la hora
-                try:
-                    # Si la hora viene como string, intentar convertir
-                    if isinstance(hora_str, str):
-                        # Eliminar AM/PM y convertir
-                        hora_str_limpia = hora_str.replace('AM', '').replace('PM', '').replace('a. m.', '').replace('p. m.', '').strip()
-                        if ':' in hora_str_limpia:
-                            partes_hora = hora_str_limpia.split(':')
-                            if len(partes_hora) >= 2:
-                                hora_int = int(partes_hora[0])
-                                # Si es PM y no es 12, sumar 12
-                                if 'PM' in hora_str.upper() or 'p. m.' in hora_str.lower():
-                                    if hora_int != 12:
-                                        hora_int += 12
-                                # Si es AM y es 12, convertir a 0
-                                elif 'AM' in hora_str.upper() or 'a. m.' in hora_str.lower():
-                                    if hora_int == 12:
-                                        hora_int = 0
-                                hora_procesada = hora_int
-                    elif isinstance(hora_str, (int, float)):
-                        hora_procesada = int(hora_str)
-                except:
-                    continue
-            
-            if hora_procesada is None:
-                continue
-            
-            # Obtener rango de hora
-            rango_hora = obtener_rango_hora(hora_procesada)
-            if not rango_hora:
-                continue
-            
-            # Contar la venta
-            key = f"{nombre_convertido}|{fecha_solo}|{rango_hora}"
-            ventas_dict[key] = ventas_dict.get(key, 0) + 1
-            
-        except Exception as e:
-            continue
-    
-    return ventas_dict
-
 def generar_resumen_consolidado(reporte_detalle):
     """
     Genera un resumen consolidado por fecha y hora con las columnas:
@@ -876,7 +745,7 @@ def guardar_excel_con_tablas(reporte_detalle, reporte_resumen):
             return None
 
 @st.cache_data
-def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None, incluir_tiempos=True):
+def procesar_datos_completos(df_llamadas, df_tiempos=None, incluir_tiempos=True):
     """Procesa los datos y genera el reporte detallado y el resumen consolidado"""
     
     with st.spinner('Procesando datos...'):
@@ -938,41 +807,38 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
         
         progress_bar.progress(50)
         
-        # 5. Clasificar contactos (ya no clasificamos ventas desde aquí)
+        # 5. Clasificar contactos y ventas
         if disposition_col:
             df_llamadas['Es_Contacto'] = df_llamadas[disposition_col].apply(es_contacto)
+            df_llamadas['Es_Venta'] = df_llamadas[disposition_col].apply(es_venta)
         else:
             df_llamadas['Es_Contacto'] = True
-        
-        # 6. Procesar ventas desde el archivo de portabilidad si existe
-        ventas_dict = {}
-        if df_portabilidad is not None and len(df_portabilidad) > 0:
-            ventas_dict = procesar_reporte_portabilidad(df_portabilidad)
-            st.success(f"✅ Ventas procesadas desde reporte: {len(ventas_dict)} registros")
+            df_llamadas['Es_Venta'] = False
         
         progress_bar.progress(60)
         
-        # 7. Obtener lista de fechas disponibles
+        # 6. Obtener lista de fechas disponibles
         fechas_disponibles = sorted(df_llamadas['Fecha_Solo'].unique())
         
-        # 8. Agrupar por fecha, agente y rango de hora (sin ventas aquí)
+        # 7. Agrupar por fecha, agente y rango de hora
         agrupado = df_llamadas.groupby(['Fecha_Solo', 'Agente_Nombre', 'Campaña', 'SITE', 'Rango_Hora']).agg({
-            'Es_Contacto': ['count', 'sum']
+            'Es_Contacto': ['count', 'sum'],
+            'Es_Venta': 'sum'
         }).reset_index()
         
-        agrupado.columns = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Registros', 'Contacto']
+        agrupado.columns = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Registros', 'Contacto', 'Ventas']
         agrupado['AGENTE'] = agrupado['AGENTE'].astype(str)
         
         progress_bar.progress(70)
         
-        # 9. Obtener lista de agentes que realmente tienen actividad en cada fecha
+        # 8. Obtener lista de agentes que realmente tienen actividad en cada fecha
         agentes_por_fecha = {}
         for fecha in fechas_disponibles:
             df_fecha = agrupado[agrupado['FECHA'] == fecha]
             agentes_activos = df_fecha[df_fecha['Registros'] > 0]['AGENTE'].unique().tolist()
             agentes_por_fecha[fecha] = agentes_activos
         
-        # 10. Crear reporte detallado - incluir TODOS los agentes que tuvieron actividad
+        # 9. Crear reporte detallado SOLO con agentes que tuvieron actividad
         reporte_list = []
         
         for fecha in fechas_disponibles:
@@ -982,6 +848,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
                 continue
             
             for agente in agentes_activos:
+                # Obtener campaña y site del agente
                 campana = obtener_campana(agente)
                 site = obtener_site(agente)
                 
@@ -992,29 +859,19 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
                         (agrupado['Rango_Hora'] == rango)
                     ]
                     
-                    # Obtener ventas del diccionario de portabilidad (puede ser 0 si no tiene)
-                    key = f"{agente}|{fecha}|{rango}"
-                    ventas = ventas_dict.get(key, 0)
-                    
                     if len(dato) > 0:
                         row = dato.iloc[0].copy()
-                        row['Ventas'] = ventas
                     else:
-                        # Si el agente no tiene registros en este rango pero tiene ventas, lo mostramos
-                        if ventas > 0:
-                            row = pd.Series({
-                                'FECHA': fecha,
-                                'AGENTE': agente,
-                                'CAMPAÑA': campana,
-                                'SITE': site,
-                                'Rango_Hora': rango,
-                                'Registros': 0,
-                                'Contacto': 0,
-                                'Ventas': ventas
-                            })
-                        else:
-                            # Si no tiene registros ni ventas, no lo incluimos
-                            continue
+                        row = pd.Series({
+                            'FECHA': fecha,
+                            'AGENTE': agente,
+                            'CAMPAÑA': campana,
+                            'SITE': site,
+                            'Rango_Hora': rango,
+                            'Registros': 0,
+                            'Contacto': 0,
+                            'Ventas': 0
+                        })
                     
                     row['Llamadas'] = row['Registros']
                     row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
@@ -1037,7 +894,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
         
         progress_bar.progress(80)
         
-        # 11. Procesar tiempos de conexión
+        # 10. Procesar tiempos de conexión
         if incluir_tiempos and df_tiempos is not None and len(df_tiempos) > 0:
             try:
                 tiempos_dict = procesar_archivo_tiempos(df_tiempos)
@@ -1046,8 +903,10 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
                     for idx, row in reporte_detalle.iterrows():
                         key = f"{row['AGENTE']}|{row['Rango_Hora']}"
                         horas = tiempos_dict.get(key, 0.0)
+                        # Limitar a máximo 1 hora por agente por rango horario
                         reporte_detalle.at[idx, 'Total conexión'] = round(min(horas, 1.0), 2)
                         
+                        # Calcular VPH: Ventas / Horas de Conexión (mínimo 0.25 horas)
                         ventas = row['Ventas']
                         horas_conn = reporte_detalle.at[idx, 'Total conexión']
                         reporte_detalle.at[idx, 'VPH'] = calcular_vph(ventas, horas_conn)
@@ -1058,16 +917,16 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
         
         progress_bar.progress(90)
         
-        # 12. Redondear valores
+        # 11. Redondear valores
         reporte_detalle['Conversión'] = reporte_detalle['Conversión'].round(2)
         reporte_detalle['VPH'] = reporte_detalle['VPH'].round(2)
         reporte_detalle['Total conexión'] = reporte_detalle['Total conexión'].round(2)
         
-        # 13. Reordenar columnas del detalle
+        # 12. Reordenar columnas del detalle
         columnas_detalle = ['FECHA', 'AGENTE', 'CAMPAÑA', 'SITE', 'Rango_Hora', 'Total conexión', 'Registros', 'Llamadas', 'Contacto', 'Ventas', 'Conversión', 'VPH']
         reporte_detalle = reporte_detalle[columnas_detalle]
         
-        # 14. Generar resumen consolidado
+        # 13. Generar resumen consolidado
         reporte_resumen = generar_resumen_consolidado(reporte_detalle)
         
         progress_bar.progress(100)
@@ -1094,18 +953,11 @@ with col1:
         type=['xlsx', 'xls', 'csv'],
         help="Sube el archivo con los tiempos de conexión por agente y hora"
     )
-    
-    archivo_portabilidad = st.file_uploader(
-        "Archivo de reporte de ventas (Opcional - Migración/Portabilidad)",
-        type=['xlsx', 'xls', 'csv'],
-        help="Sube el archivo con las ventas (Columna B: Agente, C: Fecha, D: Hora)"
-    )
 
 with col2:
     st.subheader("⚙️ Configuración")
     
     incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
-    usar_portabilidad = st.checkbox("Usar ventas desde reporte", value=True)
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
@@ -1126,17 +978,8 @@ if procesar and archivo_llamadas:
                 if df_tiempos is not None:
                     st.success(f"✅ Archivo de tiempos cargado: {len(df_tiempos):,} registros")
             
-            df_portabilidad = None
-            if archivo_portabilidad and usar_portabilidad:
-                df_portabilidad = leer_archivo(archivo_portabilidad)
-                if df_portabilidad is not None:
-                    st.success(f"✅ Archivo de ventas cargado: {len(df_portabilidad):,} registros")
-                    st.info("📋 El archivo debe tener: Columna B = Agente, Columna C = Fecha, Columna D = Hora")
-            
             # Procesar datos
-            reporte_detalle, reporte_resumen = procesar_datos_completos(
-                df_llamadas, df_tiempos, df_portabilidad, incluir_tiempos
-            )
+            reporte_detalle, reporte_resumen = procesar_datos_completos(df_llamadas, df_tiempos, incluir_tiempos)
             
             if reporte_detalle is not None and len(reporte_detalle) > 0:
                 st.balloons()
