@@ -47,7 +47,7 @@ st.markdown("""
 st.markdown('<div class="main-header"><h1>📊 Procesador de Llamadas</h1></div>', unsafe_allow_html=True)
 
 # ============================================
-# CLASE VALIDADORA CRM
+# CLASE VALIDADORA CRM (CORREGIDA)
 # ============================================
 
 class CRMValidator:
@@ -62,15 +62,17 @@ class CRMValidator:
         if self.crm_df is not None and len(self.crm_df) > 0:
             # Limpiar usuarios: RRS-AFIGUEROA -> BT-CREBECA
             if 'USUARIO' in self.crm_df.columns:
-                self.crm_df['USUARIO_LIMPIO'] = self.crm_df['USUARIO'].astype(str).str.replace('RRS-', 'BT-', regex=False)
+                # Convertir a string y luego limpiar
+                self.crm_df['USUARIO_STR'] = self.crm_df['USUARIO'].astype(str)
+                self.crm_df['USUARIO_LIMPIO'] = self.crm_df['USUARIO_STR'].str.replace('RRS-', 'BT-', regex=False)
             
             # Convertir fechas
             if 'FECHA_REGISTRO' in self.crm_df.columns:
                 try:
                     self.crm_df['FECHA_REGISTRO'] = pd.to_datetime(self.crm_df['FECHA_REGISTRO'])
                     self.crm_df['FECHA_SIMPLE'] = self.crm_df['FECHA_REGISTRO'].dt.date
-                except:
-                    pass
+                except Exception as e:
+                    st.warning(f"Error al convertir fechas en CRM: {e}")
     
     def validate_sale(self, agente, fecha_venta, numero_llamado=None, duracion=0):
         """
@@ -100,39 +102,51 @@ class CRMValidator:
         if not usuario_crm:
             return False, f"Agente '{agente_limpio}' no encontrado en mapeo CRM", "NULA"
         
-        # Buscar en CRM
-        crm_matches = self.crm_df[
-            (self.crm_df['USUARIO_LIMPIO'] == usuario_crm)
-        ]
+        # Buscar en CRM - usando columnas seguras
+        crm_matches = pd.DataFrame()
         
-        if len(crm_matches) == 0:
-            # Buscar con el nombre original
-            crm_matches = self.crm_df[
-                self.crm_df['USUARIO'].astype(str).str.contains(usuario_crm.replace('BT-', ''), case=False, na=False)
-            ]
+        # Intentar con USUARIO_LIMPIO
+        if 'USUARIO_LIMPIO' in self.crm_df.columns:
+            crm_matches = self.crm_df[self.crm_df['USUARIO_LIMPIO'] == usuario_crm]
+        
+        # Si no hay, intentar con USUARIO_STR
+        if len(crm_matches) == 0 and 'USUARIO_STR' in self.crm_df.columns:
+            crm_matches = self.crm_df[self.crm_df['USUARIO_STR'].str.contains(usuario_crm.replace('BT-', ''), case=False, na=False)]
+        
+        # Si aún no hay, intentar con USUARIO original
+        if len(crm_matches) == 0 and 'USUARIO' in self.crm_df.columns:
+            usuario_orig = usuario_crm.replace('BT-', '')
+            crm_matches = self.crm_df[self.crm_df['USUARIO'].astype(str).str.contains(usuario_orig, case=False, na=False)]
         
         if len(crm_matches) == 0:
             return False, f"Usuario '{usuario_crm}' no encontrado en CRM", "NULA"
         
         # Verificar fecha
         if fecha_venta:
-            fecha_venta_dt = pd.to_datetime(fecha_venta).date() if not isinstance(fecha_venta, datetime) else fecha_venta.date()
-            
-            crm_fechas = crm_matches['FECHA_SIMPLE'].dropna().unique()
-            
-            if fecha_venta_dt in crm_fechas:
-                # Coincidencia exacta
-                return True, f"Venta confirmada en CRM para {usuario_crm} el {fecha_venta_dt}", "ALTA"
-            else:
-                # Verificar si hay fechas cercanas
-                fechas_crm = sorted(crm_fechas)
-                if fechas_crm:
-                    for fecha_crm in fechas_crm:
-                        diff = (fecha_venta_dt - fecha_crm).days
-                        if abs(diff) <= 1:  # Tolerancia de 1 día
-                            return True, f"Venta probable en CRM (fecha cercana: {fecha_crm})", "MEDIA"
+            try:
+                fecha_venta_dt = pd.to_datetime(fecha_venta).date() if not isinstance(fecha_venta, datetime) else fecha_venta.date()
                 
-                return False, f"Usuario encontrado pero sin coincidencia de fecha ({fecha_venta_dt} vs {list(crm_fechas)})", "BAJA"
+                if 'FECHA_SIMPLE' in crm_matches.columns:
+                    crm_fechas = crm_matches['FECHA_SIMPLE'].dropna().unique()
+                else:
+                    # Si no hay FECHA_SIMPLE, intentar con FECHA_REGISTRO
+                    crm_fechas = pd.to_datetime(crm_matches['FECHA_REGISTRO']).dt.date.dropna().unique()
+                
+                if fecha_venta_dt in crm_fechas:
+                    # Coincidencia exacta
+                    return True, f"Venta confirmada en CRM para {usuario_crm} el {fecha_venta_dt}", "ALTA"
+                else:
+                    # Verificar si hay fechas cercanas
+                    fechas_crm = sorted(crm_fechas)
+                    if len(fechas_crm) > 0:
+                        for fecha_crm in fechas_crm:
+                            diff = (fecha_venta_dt - fecha_crm).days
+                            if abs(diff) <= 1:  # Tolerancia de 1 día
+                                return True, f"Venta probable en CRM (fecha cercana: {fecha_crm})", "MEDIA"
+                    
+                    return False, f"Usuario encontrado pero sin coincidencia de fecha ({fecha_venta_dt} vs {list(crm_fechas)[:3]})", "BAJA"
+            except Exception as e:
+                return False, f"Error al validar fecha: {str(e)}", "BAJA"
         
         return False, "Sin fecha para validar", "BAJA"
 
