@@ -561,7 +561,7 @@ def procesar_reporte_portabilidad(df_portabilidad):
     col_fecha = columnas[2]   # Columna C
     col_hora = columnas[3]    # Columna D
     
-    st.info(f"📋 Procesando portabilidad: Columna nombre = '{col_nombre}', Fecha = '{col_fecha}', Hora = '{col_hora}'")
+    st.info(f"📋 Procesando reporte de ventas: Columna nombre = '{col_nombre}', Fecha = '{col_fecha}', Hora = '{col_hora}'")
     
     # Procesar cada fila del archivo de portabilidad
     for idx, row in df_portabilidad.iterrows():
@@ -597,23 +597,20 @@ def procesar_reporte_portabilidad(df_portabilidad):
                     if nombre_completo.lower() in nombre_mapeado or nombre_mapeado in nombre_completo.lower():
                         nombre_convertido = value
                         break
+                
+                # Buscar por coincidencia de apellidos
+                apellidos_agente = set(nombre_agente.lower().split())
+                apellidos_mapeado = set(value.lower().split())
+                
+                # Si hay al menos 2 palabras en común, considerarlo coincidencia
+                if len(apellidos_agente.intersection(apellidos_mapeado)) >= 2:
+                    nombre_convertido = value
+                    break
             
-            # Si no se encontró, intentar limpiar y buscar directamente
+            # Si no se encontró, intentar con el nombre original
             if not nombre_convertido:
-                # Intentar con el nombre original
                 if nombre_agente in MAPEO_AGENTES.values():
                     nombre_convertido = nombre_agente
-                else:
-                    # Buscar por coincidencia parcial más flexible
-                    for value in MAPEO_AGENTES.values():
-                        # Separar el nombre mapeado en palabras
-                        palabras_mapeadas = set(value.lower().split())
-                        palabras_agente = set(nombre_agente.lower().split())
-                        
-                        # Si hay al menos 2 palabras en común, considerarlo coincidencia
-                        if len(palabras_mapeadas.intersection(palabras_agente)) >= 2:
-                            nombre_convertido = value
-                            break
             
             if not nombre_convertido:
                 continue
@@ -951,12 +948,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
         ventas_dict = {}
         if df_portabilidad is not None and len(df_portabilidad) > 0:
             ventas_dict = procesar_reporte_portabilidad(df_portabilidad)
-            st.success(f"✅ Ventas de portabilidad procesadas: {len(ventas_dict)} registros")
-            
-            # Mostrar algunas ventas como ejemplo
-            if ventas_dict:
-                sample_items = list(ventas_dict.items())[:5]
-                st.info(f"📊 Ejemplo de ventas: {sample_items}")
+            st.success(f"✅ Ventas procesadas desde reporte: {len(ventas_dict)} registros")
         
         progress_bar.progress(60)
         
@@ -980,7 +972,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
             agentes_activos = df_fecha[df_fecha['Registros'] > 0]['AGENTE'].unique().tolist()
             agentes_por_fecha[fecha] = agentes_activos
         
-        # 10. Crear reporte detallado
+        # 10. Crear reporte detallado - incluir TODOS los agentes que tuvieron actividad
         reporte_list = []
         
         for fecha in fechas_disponibles:
@@ -1000,7 +992,7 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
                         (agrupado['Rango_Hora'] == rango)
                     ]
                     
-                    # Obtener ventas del diccionario de portabilidad
+                    # Obtener ventas del diccionario de portabilidad (puede ser 0 si no tiene)
                     key = f"{agente}|{fecha}|{rango}"
                     ventas = ventas_dict.get(key, 0)
                     
@@ -1008,16 +1000,21 @@ def procesar_datos_completos(df_llamadas, df_tiempos=None, df_portabilidad=None,
                         row = dato.iloc[0].copy()
                         row['Ventas'] = ventas
                     else:
-                        row = pd.Series({
-                            'FECHA': fecha,
-                            'AGENTE': agente,
-                            'CAMPAÑA': campana,
-                            'SITE': site,
-                            'Rango_Hora': rango,
-                            'Registros': 0,
-                            'Contacto': 0,
-                            'Ventas': ventas
-                        })
+                        # Si el agente no tiene registros en este rango pero tiene ventas, lo mostramos
+                        if ventas > 0:
+                            row = pd.Series({
+                                'FECHA': fecha,
+                                'AGENTE': agente,
+                                'CAMPAÑA': campana,
+                                'SITE': site,
+                                'Rango_Hora': rango,
+                                'Registros': 0,
+                                'Contacto': 0,
+                                'Ventas': ventas
+                            })
+                        else:
+                            # Si no tiene registros ni ventas, no lo incluimos
+                            continue
                     
                     row['Llamadas'] = row['Registros']
                     row['Conversión'] = (row['Ventas'] / row['Contacto'] * 100) if row['Contacto'] > 0 else 0
@@ -1099,16 +1096,16 @@ with col1:
     )
     
     archivo_portabilidad = st.file_uploader(
-        "Archivo de reporte de portabilidad (Opcional)",
+        "Archivo de reporte de ventas (Opcional - Migración/Portabilidad)",
         type=['xlsx', 'xls', 'csv'],
-        help="Sube el archivo con las ventas de portabilidad (Columna B: Agente, C: Fecha, D: Hora)"
+        help="Sube el archivo con las ventas (Columna B: Agente, C: Fecha, D: Hora)"
     )
 
 with col2:
     st.subheader("⚙️ Configuración")
     
     incluir_tiempos = st.checkbox("Incluir tiempos de conexión", value=True)
-    usar_portabilidad = st.checkbox("Usar ventas de portabilidad", value=True)
+    usar_portabilidad = st.checkbox("Usar ventas desde reporte", value=True)
     
     procesar = st.button("🚀 Procesar Datos", type="primary", use_container_width=True)
 
@@ -1133,8 +1130,8 @@ if procesar and archivo_llamadas:
             if archivo_portabilidad and usar_portabilidad:
                 df_portabilidad = leer_archivo(archivo_portabilidad)
                 if df_portabilidad is not None:
-                    st.success(f"✅ Archivo de portabilidad cargado: {len(df_portabilidad):,} registros")
-                    st.info("📋 El archivo de portabilidad debe tener: Columna B = Agente, Columna C = Fecha, Columna D = Hora")
+                    st.success(f"✅ Archivo de ventas cargado: {len(df_portabilidad):,} registros")
+                    st.info("📋 El archivo debe tener: Columna B = Agente, Columna C = Fecha, Columna D = Hora")
             
             # Procesar datos
             reporte_detalle, reporte_resumen = procesar_datos_completos(
@@ -1194,7 +1191,7 @@ if procesar and archivo_llamadas:
                     st.markdown(f"""
                         <div class="stat-card">
                             <div class="stat-number">{total_ventas:,}</div>
-                            <div class="stat-label">Total Ventas (Portabilidad)</div>
+                            <div class="stat-label">Total Ventas</div>
                         </div>
                     """, unsafe_allow_html=True)
                 
@@ -1230,7 +1227,7 @@ if procesar and archivo_llamadas:
                         "SITE": st.column_config.TextColumn("SITE"),
                         "Registros": st.column_config.NumberColumn("Registros"),
                         "Contacto": st.column_config.NumberColumn("Contactos"),
-                        "Ventas": st.column_config.NumberColumn("Ventas (Portabilidad)"),
+                        "Ventas": st.column_config.NumberColumn("Ventas"),
                         "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
                     }
                 )
@@ -1260,7 +1257,7 @@ if procesar and archivo_llamadas:
                             with col1:
                                 st.metric("Contactos", f"{total_contactos:,}")
                             with col2:
-                                st.metric("Ventas (Portabilidad)", f"{total_ventas:,}")
+                                st.metric("Ventas", f"{total_ventas:,}")
                             with col3:
                                 st.metric("Conversión", f"{conversion:.2f}%")
                             
@@ -1276,7 +1273,7 @@ if procesar and archivo_llamadas:
                                     "Registros": st.column_config.NumberColumn("Registros"),
                                     "Llamadas": st.column_config.NumberColumn("Llamadas"),
                                     "Contacto": st.column_config.NumberColumn("Contacto"),
-                                    "Ventas": st.column_config.NumberColumn("Ventas (Portabilidad)"),
+                                    "Ventas": st.column_config.NumberColumn("Ventas"),
                                     "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
                                     "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
                                 }
@@ -1287,7 +1284,7 @@ if procesar and archivo_llamadas:
                 # ============================================
                 if reporte_resumen is not None and len(reporte_resumen) > 0:
                     st.subheader("📊 Resumen Consolidado por Fecha y Hora")
-                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas (Portabilidad) / Horas de Conexión (mínimo 15 minutos de conexión)")
+                    st.info("✅ HC = Número de agentes que trabajaron en esa hora (solo agentes con actividad)\n✅ Hrs conexión = Promedio de horas por agente (máximo 1 hora por rango)\n✅ VPH = Ventas / Horas de Conexión (mínimo 15 minutos de conexión)")
                     
                     fechas_opciones = ['Todas'] + [f.strftime('%Y-%m-%d') for f in fechas_disponibles]
                     filtro_fecha_resumen = st.selectbox("📅 Filtrar resumen por fecha:", fechas_opciones, key="filtro_resumen")
@@ -1309,7 +1306,7 @@ if procesar and archivo_llamadas:
                             "Registros": st.column_config.NumberColumn("Registros"),
                             "Llamadas": st.column_config.NumberColumn("Llamadas"),
                             "Contacto": st.column_config.NumberColumn("Contactos"),
-                            "Ventas": st.column_config.NumberColumn("Ventas (Portabilidad)"),
+                            "Ventas": st.column_config.NumberColumn("Ventas"),
                             "Conversión": st.column_config.TextColumn("Conversión"),
                             "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
                         }
@@ -1360,7 +1357,7 @@ if procesar and archivo_llamadas:
                         "Registros": st.column_config.NumberColumn("Registros"),
                         "Llamadas": st.column_config.NumberColumn("Llamadas"),
                         "Contacto": st.column_config.NumberColumn("Contacto"),
-                        "Ventas": st.column_config.NumberColumn("Ventas (Portabilidad)"),
+                        "Ventas": st.column_config.NumberColumn("Ventas"),
                         "Conversión": st.column_config.NumberColumn("Conversión", format="%.2f%%"),
                         "VPH": st.column_config.NumberColumn("VPH", format="%.2f"),
                     }
